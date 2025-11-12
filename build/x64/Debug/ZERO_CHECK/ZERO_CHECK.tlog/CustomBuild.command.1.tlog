@@ -1,0 +1,10 @@
+^C:\USERS\7DANN\DOCUMENTS\CS\CSCI_576_PROJ\BUILD\CMAKEFILES\A75996613DEDD2435A08DE1BDC44AD03\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/7dann/Documents/CS/CSCI_576_Proj -BC:/Users/7dann/Documents/CS/CSCI_576_Proj/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/7dann/Documents/CS/CSCI_576_Proj/build/ImageDisplay.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
