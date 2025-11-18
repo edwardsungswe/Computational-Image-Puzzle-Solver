@@ -1,4 +1,3 @@
-#include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -34,8 +33,8 @@ unsigned char* readImageData(const string& imagePath, int width, int height) {
         inData[3 * i + 2] = Bbuf[i];
     }
 
-    return inData;
-}
+#include "ImageIO/ImageLoader.h"
+#include "Pieces/PieceExtractor.h"
 
 int main() {
     string path     = "../data_sample/starry_night_rotate.rgb";
@@ -52,6 +51,10 @@ int main() {
 
     int width  = img.cols;
     int height = img.rows;
+    std::cout << "Detecta123123sded ";
+    // Load raw RGB
+    unsigned char* buffer = ImageLoader::loadRawRGB(pathRGB, width, height);
+    if (!buffer) return -1;
 
     // Load raw .rgb
     unsigned char* buffer = readImageData(path, width, height);
@@ -139,6 +142,8 @@ int main() {
 
     showStage(contourImage, "Stage 2: Detected Contours");
 
+    std::cout << "Press any key..." << std::endl;
+    cv::waitKey(0);
 
     Mat preview(canvasH, canvasW, CV_8UC3, Scalar(0,0,0));
 
