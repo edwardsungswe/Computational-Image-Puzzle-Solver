@@ -131,8 +131,9 @@ double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA,
 
 namespace Matcher {
 
-vector<pair<int,double>> matchAll(const vector<PieceFeature>& f)
+vector<Pair> matchAll(const vector<PieceFeature>& f)
 {
+    vector<Pair> matches;
     int N = f.size();
     vector<pair<int,double>> res(N);
 
@@ -146,31 +147,52 @@ vector<pair<int,double>> matchAll(const vector<PieceFeature>& f)
                 for (int edgeB = 0; edgeB < 4; edgeB++) {
                     double d = edgeDistanceFull(f[i], f[j], edgeA, edgeB);
 
-                    if (d < best) {
-                        best = d;
-                        bestIdx = j;
-                    }
+                    Pair match = {i, j, edgeA, edgeB, d};
                 }
             }
         }
-
-        res[i] = {bestIdx, best};
+        sort(matches.begin(), matches.end(),
+            [](const Pair& a, const Pair& b) {
+                return a.val < b.val;
+            });
     }
-    return res;
+    return matches;
 }
 
-PuzzleLayout buildLayout(int n)
+// PuzzleLayout buildLayout(int n)
+// {
+//     int s = sqrt(n);
+//     PuzzleLayout pl;
+//     pl.grid.resize(s, vector<int>(s, -1));
+
+//     int k = 0;
+//     for (int r = 0; r < s; r++)
+//         for (int c = 0; c < s; c++)
+//             pl.grid[r][c] = k++;
+
+//     return pl;
+// }
+
+PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>& f)
 {
-    int s = sqrt(n);
-    PuzzleLayout pl;
-    pl.grid.resize(s, vector<int>(s, -1));
+    PuzzleLayout layout;
+    int s = f.size();
 
-    int k = 0;
-    for (int r = 0; r < s; r++)
-        for (int c = 0; c < s; c++)
-            pl.grid[r][c] = k++;
+    unordered_map<int, PiecePosition> position;
+    unordered_map<int, bool> placed;
 
-    return pl;
+    Pair match = matches[0];
+    cv::Size sizeA = f[match.pieceA].img.size();
+    cv::Size sizeB = f[match.pieceB].img.size();
+
+    cv::Point2f newPosition = findCoords(sizeA, sizeB, );
+
+    position[match.pieceA] = {cv::Point2f(0, 0), 0, sizeA};
+    position[match.pieceB] = {newPosition, 0, sizeB}
+
+    placed[match.pieceA] = true;
+    placed[match.pieceB] = true;
+
 }
 
 }
