@@ -1,6 +1,9 @@
 #include "Matcher.h"
 #include <opencv2/opencv.hpp>
 #include <limits>
+#include <queue>
+#include <unordered_map>
+#include <algorithm>
 
 using namespace std;
 using namespace cv;
@@ -148,51 +151,155 @@ vector<Pair> matchAll(const vector<PieceFeature>& f)
                     double d = edgeDistanceFull(f[i], f[j], edgeA, edgeB);
 
                     Pair match = {i, j, edgeA, edgeB, d};
+                    matches.push_back({i, j, edgeA, edgeB, d});
                 }
             }
         }
-        sort(matches.begin(), matches.end(),
-            [](const Pair& a, const Pair& b) {
-                return a.val < b.val;
-            });
     }
+    sort(matches.begin(), matches.end(),
+    [](const Pair& a, const Pair& b) {
+        return a.val < b.val;
+    });
     return matches;
 }
 
-// PuzzleLayout buildLayout(int n)
-// {
-//     int s = sqrt(n);
-//     PuzzleLayout pl;
-//     pl.grid.resize(s, vector<int>(s, -1));
+PiecePosition calculatePlacement(int currSide, const cv::Size& currSize, int otherSide, const cv::Size& otherSize) 
+{
+    const float rightX = currSize.width;
+    const float leftX = -otherSize.width;
+    const float downY = currSize.height;
+    const float upY = -otherSize.height;
+    
+    struct Placement { float x, y, rot; };
+    Placement result = {rightX, 0, 0};
+    
+    if (currSide == 1) { // RIGHT
+        if (otherSide == 3) result = {rightX, 0, 0};
+        else if (otherSide == 0) result = {rightX, upY, 90};
+        else if (otherSide == 2) result = {rightX, downY, 270};
+        else if (otherSide == 1) result = {rightX + otherSize.width, 0, 180};
+    }
+    else if (currSide == 3) { // LEFT
+        if (otherSide == 1) result = {leftX, 0, 0};
+        else if (otherSide == 0) result = {leftX, upY, 270};
+        else if (otherSide == 2) result = {leftX, downY, 90};
+        else if (otherSide == 3) result = {leftX - currSize.width, 0, 180};
+    }
+    else if (currSide == 2) { // BOTTOM
+        if (otherSide == 0) result = {0, downY, 0};
+        else if (otherSide == 1) result = {otherSize.width, downY, 270};
+        else if (otherSide == 3) result = {leftX, downY, 90};
+        else if (otherSide == 2) result = {0, downY + otherSize.height, 180};
+    }
+    else if (currSide == 0) { // TOP
+        if (otherSide == 2) result = {0, upY, 0};
+        else if (otherSide == 1) result = {otherSize.width, upY, 90};
+        else if (otherSide == 3) result = {leftX, upY, 270};
+        else if (otherSide == 0) result = {0, upY - currSize.height, 180};
+    }
+    
+    return {cv::Point2f(result.x, result.y), result.rot, otherSize};
+}
 
-//     int k = 0;
-//     for (int r = 0; r < s; r++)
-//         for (int c = 0; c < s; c++)
-//             pl.grid[r][c] = k++;
-
-//     return pl;
-// }
+cv::Rect2f findTotalArea(const unordered_map<int, PiecePosition>& locations) 
+{
+    if (locations.empty()) {
+        return cv::Rect2f(0, 0, 0, 0);
+    }
+    
+    float left = 1e9, top = 1e9, right = -1e9, bottom = -1e9;
+    
+    for (const auto& entry : locations) {
+        const PiecePosition& spot = entry.second;
+        float pieceLeft = spot.position.x;
+        float pieceTop = spot.position.y;
+        float pieceRight = pieceLeft + spot.size.width;
+        float pieceBottom = pieceTop + spot.size.height;
+        
+        if (pieceLeft < left) left = pieceLeft;
+        if (pieceTop < top) top = pieceTop;
+        if (pieceRight > right) right = pieceRight;
+        if (pieceBottom > bottom) bottom = pieceBottom;
+    }
+    
+    return cv::Rect2f(left, top, right - left, bottom - top);
+}
 
 PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>& f)
 {
     PuzzleLayout layout;
     int s = f.size();
-
-    unordered_map<int, PiecePosition> position;
+    if (s == 0) return layout;
+    
+    queue<int> q;
+    unordered_map<int, PiecePosition> positions;
     unordered_map<int, bool> placed;
+
+    if (matches.empty()) {
+        for (int i = 0; i < s; i++) {
+            positions[i] = {cv::Point2f((i % 3) * 150, (i / 3) * 150), 0, f[i].img.size()};
+        }
+        layout.position = positions;
+        layout.bounds = findTotalArea(positions);
+        return layout;
+    }
 
     Pair match = matches[0];
     cv::Size sizeA = f[match.pieceA].img.size();
     cv::Size sizeB = f[match.pieceB].img.size();
 
-    cv::Point2f newPosition = findCoords(sizeA, sizeB, );
+    PiecePosition placement = calculatePlacement(match.edgeA, sizeA, match.edgeB, sizeB);
 
-    position[match.pieceA] = {cv::Point2f(0, 0), 0, sizeA};
-    position[match.pieceB] = {newPosition, 0, sizeB}
+    positions[match.pieceA] = {cv::Point2f(0, 0), 0, sizeA};
+    positions[match.pieceB] = {placement.position, placement.rotation, sizeB};
 
     placed[match.pieceA] = true;
     placed[match.pieceB] = true;
 
+    q.push(match.pieceA);
+    q.push(match.pieceB);
+
+    while (placed.size() < s && !q.empty()) {
+        int currentPiece = q.front();
+        cv::Point2f currentPosition = positions[currentPiece].position;
+        cv::Size currentSize = positions[currentPiece].size;
+        q.pop();
+
+        for (const auto& nextMatch : matches) {
+            if (nextMatch.pieceA != currentPiece && nextMatch.pieceB != currentPiece) continue;
+
+            int neighbor = (nextMatch.pieceA == currentPiece) ? nextMatch.pieceB : nextMatch.pieceA;
+            if (placed[neighbor]) continue;
+
+            int currentEdge, otherEdge;
+            if (nextMatch.pieceA == currentPiece) {
+                currentEdge = nextMatch.edgeA;
+                otherEdge = nextMatch.edgeB;
+            } else {
+                currentEdge = nextMatch.edgeB;
+                otherEdge = nextMatch.edgeA;
+            }
+
+            cv::Size neighborSize = f[neighbor].img.size();
+            PiecePosition neighborPlacement = calculatePlacement(currentEdge, currentSize, otherEdge, neighborSize);
+            cv::Point2f newPosition = currentPosition + neighborPlacement.position;
+
+            positions[neighbor] = {newPosition, neighborPlacement.rotation, neighborSize};
+            placed[neighbor] = true;
+            q.push(neighbor);
+        }
+    }
+
+    for (int i = 0; i < s; i++) {
+        if (!placed[i]) {
+            positions[i] = {cv::Point2f(rand() % 500, rand() % 500), 0, f[i].img.size()};
+        }
+    }
+
+    layout.position = positions;
+    layout.bounds = findTotalArea(positions);
+    return layout;
 }
+
 
 }
