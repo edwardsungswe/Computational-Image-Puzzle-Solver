@@ -56,6 +56,8 @@ int main() {
 
     Mat contourImage = bgrImage.clone();
     vector<Mat> pieces;
+    vector<cv::Point2f> pieceInitialPositions;  // Track initial positions
+    vector<float> pieceInitialRotations;        // Track initial rotations (all 0 for scrambled)
 
     for (const auto& c : contours) {
         // RotatedRect box = minAreaRect(c);
@@ -125,6 +127,10 @@ int main() {
         if (w > 0 && h > 0) {
             Mat piece = bgrImage(Rect(x, y, w, h)).clone();
             pieces.push_back(bgrImage(Rect(x, y, w, h)).clone());
+            
+            // Store initial position (center of the piece in the original image)
+            pieceInitialPositions.push_back(cv::Point2f(x + w / 2.0f, y + h / 2.0f));
+            pieceInitialRotations.push_back(0.0f);  // All pieces start with 0 rotation
             // string windowName = "Piece " + to_string(pieces.size());
             // namedWindow(windowName, WINDOW_NORMAL);
             // resizeWindow(windowName, min(400, w), min(400, h));
@@ -241,12 +247,41 @@ int main() {
 
     // Configure and run animation
     PuzzleAnimator::AnimationConfig animConfig;
-    animConfig.totalFrames = 120;     // 4 seconds at 30 FPS
+    animConfig.totalFrames = 180;     // 6 seconds at 30 FPS
     animConfig.fps = 30;
     animConfig.showWindow = true;
     animConfig.saveFrames = false;    // Set to true to save frames to disk
 
-    PuzzleAnimator::animatePuzzleAssembly(features, layout, canvasW, canvasH, animConfig);
+    PuzzleAnimator::animatePuzzleAssembly(features, layout, canvasW, canvasH, 
+                                          pieceInitialPositions, pieceInitialRotations, animConfig);
+
+    // Display final assembled puzzle and wait for keypress
+    Mat finalPuzzle(canvasH, canvasW, CV_8UC3, Scalar(0, 0, 0));
+
+    for (auto& entry : layout.positions) {
+        int pieceId = entry.first;
+        const PiecePosition& pos = entry.second;
+        const Mat& piece = features[pieceId].img;
+        Mat pieceToDraw = Matcher::rotatePiece(piece, pos.rotation);
+
+        int screenX = static_cast<int>(pos.position.x - minX + 50);
+        int screenY = static_cast<int>(pos.position.y - minY + 50);
+
+        if (screenX >= 0 && screenY >= 0 &&
+            screenX + piece.cols <= canvasW &&
+            screenY + piece.rows <= canvasH) {
+            pieceToDraw.copyTo(finalPuzzle(Rect(screenX, screenY, piece.cols, piece.rows)));
+        }
+    }
+
+    putText(finalPuzzle, "Animation Complete!", 
+            Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0, 255, 0), 2);
+    putText(finalPuzzle, "Press any key to exit...", 
+            Point(20, canvasH - 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200, 200, 200), 2);
+
+    imshow("Final Puzzle", finalPuzzle);
+    waitKey(0);
+    destroyWindow("Final Puzzle");
 
     return 0;
 }
