@@ -28,7 +28,12 @@ struct Pair {
 
 namespace Matcher {
     std::vector<Pair> createFilteredMatches(const std::vector<PieceFeature>& features, double ratioTestThreshold);
+    std::vector<Pair> createFilteredMatchesWithGlobalAnalysis(const std::vector<PieceFeature>& features, double zScoreThreshold = 2.0);
     PuzzleLayout buildLayout(const std::vector<Pair>& matches, const std::vector<PieceFeature>& f);
+    std::vector<Pair> createCombinedMatches(const std::vector<PieceFeature>& features, 
+                                    double ratioThreshold, 
+                                    double zScoreThreshold,
+                                    double combinedWeight);
     cv::Mat rotatePiece(const cv::Mat& img, float rotation);
 
 

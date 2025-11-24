@@ -2,6 +2,12 @@
 #include <opencv2/opencv.hpp>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
+#include <map>
+#include <deque>
+#include <queue>
+#include <numeric>
+#include <cmath>
 #include <algorithm>
 
 #include <fstream>
@@ -10,24 +16,24 @@ using namespace std;
 using namespace cv;
 
 
-// void saveMatchesToFile(const vector<Pair>& matches, const string& filename) {
-//     ofstream out(filename);
-//     if (!out.is_open()) {
-//         cerr << "Failed to open file: " << filename << endl;
-//         return;
-//     }
+void saveMatchesToFile(const vector<Pair>& matches, const string& filename) {
+    ofstream out(filename);
+    if (!out.is_open()) {
+        cerr << "Failed to open file: " << filename << endl;
+        return;
+    }
 
-//     out << "PieceA\tEdgeA\tPieceB\tEdgeB\tScore\n";
-//     out << fixed << setprecision(4);
+    out << "PieceA\tEdgeA\tPieceB\tEdgeB\tScore\n";
+    out << fixed << setprecision(4);
 
-//     for (const auto& m : matches) {
-//         out << m.pieceA << "\t" << m.edgeA << "\t"
-//             << m.pieceB << "\t" << m.edgeB << "\t"
-//             << m.val << "\n";
-//     }
+    for (const auto& m : matches) {
+        out << m.pieceA << "\t" << m.edgeA << "\t"
+            << m.pieceB << "\t" << m.edgeB << "\t"
+            << m.val << "\n";
+    }
 
-//     out.close();
-// }
+    out.close();
+}
 
 
 static void reverseEdgeVals(vector<double>& vals) {
@@ -128,12 +134,105 @@ Mat matEdgeGrad(const Mat& imgGray, int edge, int N)
     return grad;
 }
 
-double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA, int edgeB)
-{
+double computeEdgeProfileCompatibility(const EdgeFeature& efA, const EdgeFeature& efB) {
+    
+    vector<double> reversedB = efB.vals;
+    reverse(reversedB.begin(), reversedB.end());
+    
+    double forwardMatch = 0.0, reverseMatch = 0.0;
+    double forwardSlopeConsistency = 0.0, reverseSlopeConsistency = 0.0;
+    
+    for (int i = 0; i < efA.vals.size(); i++) {
+        double diffForward = efA.vals[i] - efB.vals[i];
+        double diffReverse = efA.vals[i] - reversedB[i];
+        forwardMatch += diffForward * diffForward;
+        reverseMatch += diffReverse * diffReverse;
+        
+        if (i > 0) {
+            double slopeA = efA.vals[i] - efA.vals[i-1];
+            double slopeB_forward = efB.vals[i] - efB.vals[i-1];
+            double slopeB_reverse = reversedB[i] - reversedB[i-1];
+            
+            forwardSlopeConsistency += abs(slopeA + slopeB_forward);
+            reverseSlopeConsistency += abs(slopeA + slopeB_reverse);
+        }
+    }
+
+    double profileScore = min(forwardMatch, reverseMatch);
+    double slopeScore = min(forwardSlopeConsistency, reverseSlopeConsistency);
+    
+    return profileScore + slopeScore * 0.1;
+}
+
+Mat extractTexturePatch(const Mat& img, int edge, int distanceFromEdge, int patchWidth) {
+    int h = img.rows, w = img.cols;
+    Mat patch(patchWidth, 1, CV_8UC3);
+    
+    for (int i = 0; i < patchWidth; i++) {
+        float t = float(i) / (patchWidth - 1);
+        int x, y;
+        
+        switch(edge) {
+            case 0:
+                x = t * (w-1);
+                y = distanceFromEdge;
+                break;
+            case 1:
+                x = w - 1 - distanceFromEdge;
+                y = t * (h-1);
+                break;
+            case 2:
+                x = t * (w-1);
+                y = h - 1 - distanceFromEdge;
+                break;
+            case 3:
+                x = distanceFromEdge;
+                y = t * (h-1);
+                break;
+        }
+        
+        x = max(0, min(x, w-1));
+        y = max(0, min(y, h-1));
+        patch.at<Vec3b>(i, 0) = img.at<Vec3b>(y, x);
+    }
+    return patch;
+}
+
+
+double computeTextureConsistency(const Mat& imgA, const Mat& imgB, int edgeA, int edgeB) {
+    Mat textureA1 = extractTexturePatch(imgA, edgeA, 2, 15);
+    Mat textureA2 = extractTexturePatch(imgA, edgeA, 8, 15);
+    Mat textureB1 = extractTexturePatch(imgB, edgeB, 2, 15);
+    Mat textureB2 = extractTexturePatch(imgB, edgeB, 8, 15);
+    
+    Mat grayA1, grayA2, grayB1, grayB2;
+    cvtColor(textureA1, grayA1, COLOR_BGR2GRAY);
+    cvtColor(textureA2, grayA2, COLOR_BGR2GRAY);
+    cvtColor(textureB1, grayB1, COLOR_BGR2GRAY);
+    cvtColor(textureB2, grayB2, COLOR_BGR2GRAY);
+    
+    Scalar meanA1, stddevA1, meanA2, stddevA2;
+    Scalar meanB1, stddevB1, meanB2, stddevB2;
+    meanStdDev(grayA1, meanA1, stddevA1);
+    meanStdDev(grayA2, meanA2, stddevA2);
+    meanStdDev(grayB1, meanB1, stddevB1);
+    meanStdDev(grayB2, meanB2, stddevB2);
+    
+    double varianceDiff1 = abs(stddevA1[0] - stddevB1[0]);
+    double varianceDiff2 = abs(stddevA2[0] - stddevB2[0]);
+    double meanEvolutionA = abs(meanA1[0] - meanA2[0]);
+    double meanEvolutionB = abs(meanB1[0] - meanB2[0]);
+    double evolutionConsistency = abs(meanEvolutionA - meanEvolutionB);
+    
+    return varianceDiff1 + varianceDiff2 + evolutionConsistency * 2.0;
+}
+
+
+double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA, int edgeB) {
     const int N = 40;
 
-    Mat Ahsv = matEdgeHSV(A.img, edgeA, N); // updated to any edge on A
-    Mat Bhsv = matEdgeHSV(B.img, edgeB, N); // updated to any edge on B
+    Mat Ahsv = matEdgeHSV(A.img, edgeA, N);
+    Mat Bhsv = matEdgeHSV(B.img, edgeB, N);
 
     Mat Agray, Bgray;
     cvtColor(A.img, Agray, COLOR_BGR2GRAY);
@@ -148,11 +247,16 @@ double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA,
     double L = distLuma(efA, efB);
     double C = distColor(Ahsv, Bhsv);
     double G = distGradient(Agrad, Bgrad);
+    double P = computeEdgeProfileCompatibility(efA, efB);
+    double T = computeTextureConsistency(A.img, B.img, edgeA, edgeB);
 
     double dist = 
-        1.0 * L +
-        0.5 * C +
-        0.8 * G;
+        2.5 * L +        // Luma structure
+        0.1 * C +        // Color consistency  
+        1.0 * G +        // Gradient strength
+        6.0 * P +        // Profile compatibility
+        3.0 * T;        // Texture consistency
+ 
 
     return dist;
 }
@@ -162,14 +266,23 @@ namespace Matcher {
 vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double ratioTestThreshold = 0.8)
 {
     vector<Pair> matches;
+    ofstream debugLog("match_analysis.csv");
+    debugLog << "PieceA,EdgeA,PieceB,EdgeB,Luma,Color,Gradient,Profile,Texture,Continuity,TotalScore,Status\n";
     int pieceCount = features.size();
     
     for (int i = 0; i < pieceCount; i++) {
         for (int j = i + 1; j < pieceCount; j++) {
             for (int edgeA = 0; edgeA < 4; edgeA++) {
                 for (int edgeB = 0; edgeB < 4; edgeB++) {
-                    double score = edgeDistanceFull(features[i], features[j], edgeA, edgeB);
-                    matches.push_back({i, j, edgeA, edgeB, score});
+                     if ((edgeA == 0 && edgeB == 2) ||
+                        (edgeA == 2 && edgeB == 0) || 
+                        (edgeA == 1 && edgeB == 3) || 
+                        (edgeA == 3 && edgeB == 1)) { 
+                        double score = edgeDistanceFull(features[i], features[j], edgeA, edgeB);
+                    
+                        matches.push_back({i, j, edgeA, edgeB, score});
+
+                        }
                 }
             }
         }
@@ -186,7 +299,6 @@ vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double 
     avgTopScores /= checkFirstN;
     
     double scoreCutoff = avgTopScores * 2.0;
-    cout << "Using score cutoff: " << scoreCutoff << endl;
     
     vector<Pair> goodMatches;
     unordered_map<int, double> bestScoreForEdge;
@@ -225,11 +337,11 @@ vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double 
         }
     }
     
-    // saveMatchesToFile(goodMatches, "C:\\Users\\7dann\\Documents\\CS\\matches_ranked.txt");
-    cout << "Found " << goodMatches.size() << " good matches out of " << matches.size() << " total" << endl;
+    saveMatchesToFile(goodMatches, "C:\\Users\\7dann\\Documents\\CS\\matches_ranked.txt");
     
     return goodMatches;
 }
+
 
 cv::Rect2f findTotalArea(const unordered_map<int, PiecePosition>& locations) {
     if (locations.empty()) {
@@ -268,7 +380,7 @@ Mat rotatePiece(const Mat& img, float rotation) {
 float calculateRequiredRotation(int edgeA, int edgeB) {
     if ((edgeA == 0 && edgeB == 2) || (edgeA == 2 && edgeB == 0) ||
         (edgeA == 1 && edgeB == 3) || (edgeA == 3 && edgeB == 1)) {
-        return 0.0f;
+        return 0.0f; 
     }
     else if ((edgeA == 0 && edgeB == 1) || (edgeA == 1 && edgeB == 2) ||
              (edgeA == 2 && edgeB == 3) || (edgeA == 3 && edgeB == 0)) {
@@ -361,7 +473,6 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         int b = m.pieceB;
         int edgeA = m.edgeA;
         int edgeB = m.edgeB;
-
         if (allPiecesPlaced()) {
             break;
         }
@@ -402,16 +513,16 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
             edgeUsed[a][edgeA] = true;
             edgeUsed[b][edgeB] = true;
 
-            // cout << "Seeded pair from match " << i << ": placed " << a << " at " << posA
-            //      << " and " << b << " at " << posB << " (score=" << m.val << ")\n";
-            // cout << "  Created group " << newGroup << " with pieces: " << a << ", " << b << "\n";
+            cout << "Seeded pair from match " << i << ": placed " << a << " at " << posA
+                 << " and " << b << " at " << posB << " (score=" << m.val << ")\n";
+            cout << "  Created group " << newGroup << " with pieces: " << a << ", " << b << "\n";
 
             cv::Rect2f groupBounds = getGroupBounds(newGroup);
             newGroupXCoordinate += (int)groupBounds.width + margin;
             
-            // cout << "  Group bounds: [" << groupBounds.x << ", " << groupBounds.y << ", " 
-            //      << groupBounds.width << ", " << groupBounds.height << "]\n";
-            // cout << "  Next seed X: " << newGroupXCoordinate << "\n";
+            cout << "  Group bounds: [" << groupBounds.x << ", " << groupBounds.y << ", " 
+                 << groupBounds.width << ", " << groupBounds.height << "]\n";
+            cout << "  Next seed X: " << newGroupXCoordinate << "\n";
             positions[a] = {posA, 0.0f, sizeA};
             positions[b] = {posB, rotationB, sizeB};
             continue;
@@ -442,9 +553,9 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
             edgeUsed[a][edgeA] = true;
             edgeUsed[b][edgeB] = true;
 
-            // cout << "Attached piece " << b << " to placed " << a << " using match " << i
-            //      << " (score=" << m.val << ")\n";
-            // cout << "  Added piece " << b << " to group " << groupA << "\n";
+            cout << "Attached piece " << b << " to placed " << a << " using match " << i
+                 << " (score=" << m.val << ")\n";
+            cout << "  Added piece " << b << " to group " << groupA << "\n";
             positions[b] = {posB, rotationB, sizeB};
             continue;
         }
@@ -474,9 +585,9 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
             edgeUsed[a][edgeA] = true;
             edgeUsed[b][edgeB] = true;
 
-            // cout << "Attached piece " << a << " to placed " << b << " using match " << i
-            //      << " (score=" << m.val << ")\n";
-            // cout << "  Added piece " << a << " to group " << groupB << "\n";
+            cout << "Attached piece " << a << " to placed " << b << " using match " << i
+                 << " (score=" << m.val << ")\n";
+            cout << "  Added piece " << a << " to group " << groupB << "\n";
             positions[a] = {posA, rotationA, sizeA};
             continue;
         }
@@ -509,9 +620,9 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
                 edgeUsed[a][edgeA] = true;
                 edgeUsed[b][edgeB] = true;
                 
-                // cout << "Connected groups " << groupA << " and " << groupB << " using match " << i 
-                //      << " between pieces " << a << " and " << b << " (score=" << m.val << ")\n";
-                // cout << "  Merged into group " << mergedGroup << "\n";
+                cout << "Connected groups " << groupA << " and " << groupB << " using match " << i 
+                     << " between pieces " << a << " and " << b << " (score=" << m.val << ")\n";
+                cout << "  Merged into group " << mergedGroup << "\n";
             }
             continue;
         }

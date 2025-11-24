@@ -82,23 +82,38 @@ int main() {
         // Rotate
         // Mat M = getRotationMatrix2D(box.center, angle, 1.0);
         // Mat rotated;
-        // warpAffine(bgrImage, rotated, M, bgrImage.size(), INTER_CUBIC, BORDER_CONSTANT, Scalar(0,0,0));
+        // warpAffine(bgrImage, rotated, M, bgrImage.size(), INTER_LANCZOS4, BORDER_REFLECT);
 
-        // // ROI extraction
+        // ROI extraction
         // Rect roi;
         // roi.width  = (int)boxSize.width;
         // roi.height = (int)boxSize.height;
         // roi.x = (int)(box.center.x - roi.width  / 2);
         // roi.y = (int)(box.center.y - roi.height / 2);
 
+        // // Apply bounds checking
         // roi.x = max(0, min(roi.x, rotated.cols - 1));
         // roi.y = max(0, min(roi.y, rotated.rows - 1));
         // if (roi.x + roi.width > rotated.cols)  roi.width  = rotated.cols - roi.x;
         // if (roi.y + roi.height > rotated.rows) roi.height = rotated.rows - roi.y;
 
         // if (roi.width > 0 && roi.height > 0) {
-        //     pieces.push_back(rotated(roi).clone());
+        //     // Create padded ROI to avoid edge artifacts
+        //     Rect roi_padded = roi;
+        //     roi_padded.x = max(0, roi.x - 1);  // Expand left
+        //     roi_padded.y = max(0, roi.y - 1);  // Expand top
+        //     roi_padded.width = min(rotated.cols - roi_padded.x, roi.width + 2);   // Expand right
+        //     roi_padded.height = min(rotated.rows - roi_padded.y, roi.height + 2); // Expand bottom
+            
+        //     Mat piece_with_padding = rotated(roi_padded).clone();
+            
+        //     // Extract the actual piece without padding (center of the padded region)
+        //     Rect inner_roi(1, 1, roi.width, roi.height);  // Offset within padded image
+        //     Mat piece = piece_with_padding(inner_roi).clone();
+            
+        //     pieces.push_back(piece);
         // }
+       
 
         // For non-rotated image
         int x = max(0, min(box.x, bgrImage.cols - 1));
@@ -107,8 +122,17 @@ int main() {
         int h = min(box.height, bgrImage.rows - y);
 
         if (w > 0 && h > 0) {
+            Mat piece = bgrImage(Rect(x, y, w, h)).clone();
             pieces.push_back(bgrImage(Rect(x, y, w, h)).clone());
+            // string windowName = "Piece " + to_string(pieces.size());
+            // namedWindow(windowName, WINDOW_NORMAL);
+            // resizeWindow(windowName, min(400, w), min(400, h));
+            // imshow(windowName, piece);
+            
+            // // Wait for a key press to see each piece
+            // waitKey(100);
         }
+
     }
 
 
@@ -145,7 +169,7 @@ int main() {
     Mat preview(canvasH, canvasW, CV_8UC3, Scalar(0,0,0));
 
     int x = 10, y = 10, rowH = 0;
-
+    int pieceID = 0;
     for (auto& piece : pieces) {
         if (x + piece.cols > canvasW - 10) {
             x = 10;
@@ -155,25 +179,24 @@ int main() {
         if (y + piece.rows > canvasH - 10) break;
 
         piece.copyTo(preview(Rect(x, y, piece.cols, piece.rows)));
+        rowH = max(rowH, piece.rows);
+        putText(preview, to_string(pieceID), Point(x + 5, y + 20),
+            FONT_HERSHEY_SIMPLEX, 0.5, Scalar(255,255,255), 1);
         x += piece.cols + 10;
         rowH = max(rowH, piece.rows);
+        pieceID++;
     }
 
-    showStage(preview, "Stage 3: Corrected Pieces");
+    // showStage(preview, "Stage 3: Corrected Pieces");
+    showStage(preview, "S");
 
 
     // Testing accuracy of Matcher and building final image without animation currently
     vector<PieceFeature> features;
     for (auto& p : pieces) features.push_back(FeatureExtractor::extract(p));
 
-    vector<Pair> allMatches = Matcher::createFilteredMatches(features, 0.7);
+    vector<Pair> allMatches = Matcher::createFilteredMatches(features, 0.8);
 
-    cout << "Total matches found: " << allMatches.size() << endl;
-    if (!allMatches.empty()) {
-        cout << "Best match: piece " << allMatches[0].pieceA << " edge " << allMatches[0].edgeA 
-            << " <-> piece " << allMatches[0].pieceB << " edge " << allMatches[0].edgeB 
-            << " (score: " << allMatches[0].val << ")" << endl;
-    }
 
     PuzzleLayout layout = Matcher::buildLayout(allMatches, features);
  
