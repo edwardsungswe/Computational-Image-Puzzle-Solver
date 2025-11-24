@@ -9,6 +9,7 @@
 #include "Assembler.h"
 #include "ImageIO/ImageLoader.h"
 #include "Pieces/PieceExtractor.h"
+#include "Animation/PuzzleAnimator.h"
 
 using namespace std;
 using namespace cv;
@@ -229,55 +230,23 @@ int main() {
         rectangle(finalAssembly, Point(screenX, screenY),
                   Point(screenX + piece.cols, screenY + piece.rows), Scalar(0,255,0), 1);
     }
-    putText(finalAssembly, "Testing", 
+    putText(finalAssembly, "Final Matched Layout", 
             Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255,255,255), 2);
-    putText(finalAssembly, "Press any key to exit...", 
+    putText(finalAssembly, "Press any key to start animation...", 
             Point(20, canvasH - 20), FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200,200,200), 2);
 
-    imshow("Testing", finalAssembly);
+    imshow("Final Layout", finalAssembly);
     waitKey(0);
+    destroyWindow("Final Layout");
 
-    // vector<Point> targetPos = Assembler::computePiecePositions(layout, features, canvasW, canvasH);
+    // Configure and run animation
+    PuzzleAnimator::AnimationConfig animConfig;
+    animConfig.totalFrames = 120;     // 4 seconds at 30 FPS
+    animConfig.fps = 30;
+    animConfig.showWindow = true;
+    animConfig.saveFrames = false;    // Set to true to save frames to disk
 
-    // vector<Point> startPos(features.size());
-    // for (int i = 0; i < features.size(); i++) {
-    //     startPos[i] = Point(rand() % canvasW, rand() % canvasH);
-    // }
+    PuzzleAnimator::animatePuzzleAssembly(features, layout, canvasW, canvasH, animConfig);
 
-    // canvas = Mat(canvasH, canvasW, CV_8UC3, Scalar(0,0,0));
-    // putText(canvas, "Stage 4: Animation (auto play)",
-    //         Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255,255,255), 2);
-    // putText(canvas, "Press any key to start animation...",
-    //         Point(20, canvasH - 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200,200,200), 2);
-    // imshow("Puzzle Demo", canvas);
-    // waitKey(0);
-
-    // for (int frame = 0; frame < 60; frame++) {
-    //     float t = frame / 59.0f;
-    //     canvas = Mat(canvasH, canvasW, CV_8UC3, Scalar(0,0,0));
-
-    //     for (int i = 0; i < features.size(); i++) {
-    //         int x = startPos[i].x * (1 - t) + targetPos[i].x * t;
-    //         int y = startPos[i].y * (1 - t) + targetPos[i].y * t;
-
-    //         const Mat& piece = features[i].img;
-    //         if (x >= 0 && y >= 0 &&
-    //             x + piece.cols <= canvasW &&
-    //             y + piece.rows <= canvasH)
-    //         {
-    //             piece.copyTo(canvas(Rect(x, y, piece.cols, piece.rows)));
-    //         }
-    //     }
-
-    //     putText(canvas, "Stage 4: Animation",
-    //             Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255,255,255), 2);
-
-    //     imshow("Puzzle Demo", canvas);
-    //     waitKey(30);
-    // }
-
-    // Mat finalImage = Assembler::assembleImage(layout, features, canvasW, canvasH);
-
-    // showStage(finalImage, "Final Result (Press any key to exit)");
     return 0;
 }

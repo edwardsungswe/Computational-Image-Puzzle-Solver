@@ -1,0 +1,3 @@
+/Users/edwardsung/Desktop/repo/CSCI_576_Proj_1/.build/CMakeFiles/MyImageApplication.dir
+/Users/edwardsung/Desktop/repo/CSCI_576_Proj_1/.build/CMakeFiles/edit_cache.dir
+/Users/edwardsung/Desktop/repo/CSCI_576_Proj_1/.build/CMakeFiles/rebuild_cache.dir
