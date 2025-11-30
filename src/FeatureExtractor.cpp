@@ -12,18 +12,36 @@ static EdgeFeature sampleEdgeFromMat(const Mat& Y, int edge, int nSamples) {
     int w = Y.cols;
     ef.vals.resize(nSamples);
 
+    int sampleWidth = 15;
     for (int i = 0; i < nSamples; i++) {
         float t = float(i) / (nSamples - 1);
-        int x, y;
+        double sum = 0.0;
+        int count = 0;
 
-        switch (edge) {
-            case 0: x = t * (w - 1); y = 0; break;
-            case 1: x = w - 1;      y = t * (h - 1); break;
-            case 2: x = t * (w - 1); y = h - 1; break;
-            default: x = 0; y = t * (h - 1); break;
+        for (int offset = -sampleWidth/2; offset <= sampleWidth/2; offset++) {
+            int x, y;
+            switch (edge) {
+                case 0: 
+                    x = t * (w - 1); 
+                    y = max(0, min(h-1, offset)); 
+                    break;
+                case 1: 
+                    x = max(0, min(w-1, w-1 + offset)); 
+                    y = t * (h - 1); 
+                    break;
+                case 2: 
+                    x = t * (w - 1); 
+                    y = max(0, min(h-1, h-1 + offset)); 
+                    break;
+                default: 
+                    x = max(0, min(w-1, offset)); 
+                    y = t * (h - 1); 
+                    break;
+            }
+            sum += Y.at<uchar>(y, x);
+            count++;
         }
-
-        ef.vals[i] = Y.at<uchar>(y, x);
+        ef.vals[i] = sum / count;
     }
     return ef;
 }

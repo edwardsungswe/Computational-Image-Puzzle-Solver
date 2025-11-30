@@ -9,12 +9,24 @@
 #include <numeric>
 #include <cmath>
 #include <algorithm>
-
 #include <fstream>
+#include <iomanip>
+
 
 using namespace std;
 using namespace cv;
-
+static std::ofstream scoreLog;
+struct ScoreBreakdown {
+    double L_norm = 0.0;
+    double D_ncc  = 0.0;
+    double G_norm = 0.0;
+    double P_norm = 0.0;
+    double T_norm = 0.0;
+    double colorNorm = 0.0;
+    double combined = 0.0;
+    bool nccFail = false;
+    bool colorFail = false;
+};
 
 void saveMatchesToFile(const vector<Pair>& matches, const string& filename) {
     ofstream out(filename);
@@ -35,10 +47,17 @@ void saveMatchesToFile(const vector<Pair>& matches, const string& filename) {
     out.close();
 }
 
-
-static void reverseEdgeVals(vector<double>& vals) {
-    reverse(vals.begin(), vals.end());
+static void initScoreLog(const std::string& path="C:\\Users\\7dann\\Documents\\CS\\edge_score_log.csv") {
+    scoreLog.open(path, std::ios::out | std::ios::trunc);
+    if (!scoreLog.is_open()) {
+        cerr << "initScoreLog: FAILED to open '" << path << "'\n";
+    } else {
+        cout << "initScoreLog: open -> '" << path << "'\n";
+        scoreLog << "pieceA,edgeA,pieceB,edgeB,L_norm,D_ncc,G_norm,P_norm,T_norm,colorNorm,nccFail,colorFail,combined\n";
+        scoreLog.flush();
+    }
 }
+
 
 static double distLuma(const EdgeFeature& a, const EdgeFeature& b)
 {
@@ -251,23 +270,23 @@ double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA,
     double T = computeTextureConsistency(A.img, B.img, edgeA, edgeB);
 
     double dist = 
-        2.5 * L +        // Luma structure
-        0.1 * C +        // Color consistency  
+        1.5 * L +        // Luma structure
+        0.5 * C +        // Color consistency  
         1.0 * G +        // Gradient strength
-        6.0 * P +        // Profile compatibility
-        3.0 * T;        // Texture consistency
+        4.0 * P +        // Profile compatibility
+        2.0 * T;        // Texture consistency
+
  
 
     return dist;
 }
 
-
 namespace Matcher {
-vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double ratioTestThreshold = 0.8)
+vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double ratioTestThreshold)
 {
     vector<Pair> matches;
-    ofstream debugLog("match_analysis.csv");
-    debugLog << "PieceA,EdgeA,PieceB,EdgeB,Luma,Color,Gradient,Profile,Texture,Continuity,TotalScore,Status\n";
+    // ofstream debugLog("match_analysis.csv");
+    // debugLog << "PieceA,EdgeA,PieceB,EdgeB,Luma,Color,Gradient,Profile,Texture,Continuity,TotalScore,Status\n";
     int pieceCount = features.size();
     
     for (int i = 0; i < pieceCount; i++) {
@@ -298,7 +317,7 @@ vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double 
     }
     avgTopScores /= checkFirstN;
     
-    double scoreCutoff = avgTopScores * 2.0;
+    double scoreCutoff = avgTopScores * 4.0;
     
     vector<Pair> goodMatches;
     unordered_map<int, double> bestScoreForEdge;
@@ -337,11 +356,10 @@ vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double 
         }
     }
     
-    saveMatchesToFile(goodMatches, "C:\\Users\\7dann\\Documents\\CS\\matches_ranked.txt");
+    // saveMatchesToFile(goodMatches, "C:\\Users\\7dann\\Documents\\CS\\matches_ranked.txt");
     
     return goodMatches;
 }
-
 
 cv::Rect2f findTotalArea(const unordered_map<int, PiecePosition>& locations) {
     if (locations.empty()) {
@@ -394,39 +412,36 @@ float calculateRequiredRotation(int edgeA, int edgeB) {
         return 180.0f;
     }
 }
-
-PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>& f)
+PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>& f, int canvasW, int canvasH)
 {
     PuzzleLayout layout;
     int N = (int)f.size();
 
     unordered_map<int, PiecePosition> positions;
     unordered_map<int, vector<bool>> edgeUsed;
-    unordered_map<int, int> groupId;        // Key: PiecesID, Value: GroupID
-    unordered_map<int, vector<int>> groups;         //Key: GroupID, Value: PiecesID
+    unordered_map<int, int> groupId;
+    unordered_map<int, vector<int>> groups;
     int nextGroupId = 0;
     
+    // Initialize
     for (int i = 0; i < N; ++i) {
         edgeUsed[i] = vector<bool>(4, false);
         groupId[i] = -1;
     }
 
-    int maxPieceW = 0, maxPieceH = 0;
-    for (const auto &pf : f) {
-        maxPieceW = max(maxPieceW, pf.img.cols);
-        maxPieceH = max(maxPieceH, pf.img.rows);
-    }
     const int margin = 50;
     int newGroupXCoordinate = 0;
 
-    // Helper function to move an entire group
+    cout << "STARTING LAYOUT BUILDING" << endl;
+    cout << "Total pieces: " << N << ", Total matches: " << matches.size() << endl;
+
+    // Helper functions
     auto moveGroup = [&](int group, const cv::Point2f& offset) {
         for (int piece : groups[group]) {
             positions[piece].position += offset;
         }
     };
 
-    // Helper function to get the bounding box of a group
     auto getGroupBounds = [&](int group) -> cv::Rect2f {
         if (groups[group].empty()) return cv::Rect2f(0,0,0,0);
         
@@ -447,7 +462,6 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         return cv::Rect2f(minX, minY, maxX - minX, maxY - minY);
     };
 
-    // Helper function to merge two groups
     auto mergeGroups = [&](int groupA, int groupB) {
         if (groupA == groupB) return groupA;
         
@@ -462,89 +476,155 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         return targetGroup;
     };
 
-    // Helper function to check if all pieces are placed
-    auto allPiecesPlaced = [&]() {
-        return positions.size() == N;
+    auto allPiecesConnected = [&]() {
+        if (positions.size() != N) return false;
+        
+
+        if (groups.empty()) return false;
+        
+        int firstGroup = groups.begin()->first;
+        for (int i = 0; i < N; i++) {
+            if (groupId[i] != firstGroup) {
+                return false;
+            }
+        }
+        return true;
     };
 
+    // Process matches
     for (size_t i = 0; i < matches.size(); i++) {
         const Pair &m = matches[i];
         int a = m.pieceA;
         int b = m.pieceB;
         int edgeA = m.edgeA;
         int edgeB = m.edgeB;
-        if (allPiecesPlaced()) {
+        
+        cout << "\n=== Processing match " << i << " ===" << endl;
+        cout << "Piece " << a << " (edge " << edgeA << ") <-> Piece " << b << " (edge " << edgeB << "), Score: " << m.val << endl;
+        
+        if (allPiecesConnected()) {
+            cout << "All pieces placed, stopping." << endl;
             break;
         }
-
-        if (edgeUsed[a][edgeA] || edgeUsed[b][edgeB]) {
+        
+        if (edgeUsed[a][edgeA]) {
+            cout << "Skip: Edge " << edgeA << " of piece " << a << " already used." << endl;
+            continue;
+        }
+        if (edgeUsed[b][edgeB]) {
+            cout << "Skip: Edge " << edgeB << " of piece " << b << " already used." << endl;
             continue;
         }
 
         bool placedA = positions.count(a) != 0;
         bool placedB = positions.count(b) != 0;
 
+        cout << "Piece " << a << " placed: " << (placedA ? "YES" : "NO") << endl;
+        cout << "Piece " << b << " placed: " << (placedB ? "YES" : "NO") << endl;
+
         if (!placedA && !placedB) {
+            cout << "Case: Neither piece placed - creating new group" << endl;
+            
             float rotationB = calculateRequiredRotation(edgeA, edgeB);
+            cv::Size sizeA = f[a].img.size();
             cv::Size sizeB = f[b].img.size();
+            
+            cout << "Piece " << a << " size: " << sizeA.width << "x" << sizeA.height << endl;
+            cout << "Piece " << b << " size: " << sizeB.width << "x" << sizeB.height << endl;
+            cout << "Required rotation for piece " << b << ": " << rotationB << " degrees" << endl;
+            
+
             if (rotationB == 90.0f || rotationB == 270.0f) {
                 sizeB = cv::Size(sizeB.height, sizeB.width);
+                cout << "Adjusted piece " << b << " size after rotation: " << sizeB.width << "x" << sizeB.height << endl;
             }
+
             int newGroup = nextGroupId++;
             groupId[a] = newGroup;
             groupId[b] = newGroup;
             groups[newGroup] = {a, b};
 
             cv::Point2f posA((float)newGroupXCoordinate, 0.0f);
-            cv::Size sizeA = f[a].img.size();
-
+            
             cv::Point2f offset(0.0f, 0.0f);
             switch (edgeA) {
-                case 0: offset = cv::Point2f(0.0f, - (float)sizeB.height); break; // place B above A
-                case 1: offset = cv::Point2f((float)sizeA.width, 0.0f); break;     // place B right of A
-                case 2: offset = cv::Point2f(0.0f, (float)sizeA.height); break;    // place B below A
-                case 3: offset = cv::Point2f(- (float)sizeB.width, 0.0f); break;    // place B left of A
+                case 0: 
+                    offset = cv::Point2f(0.0f, - (float)sizeB.height); 
+                    cout << "Edge configuration: A.top - B.bottom, placing B above A" << endl;
+                    break;
+                case 1: 
+                    offset = cv::Point2f((float)sizeA.width, 0.0f);
+                    cout << "Edge configuration: A.right - B.left, placing B right of A" << endl;
+                    break;
+                case 2: 
+                    offset = cv::Point2f(0.0f, (float)sizeA.height);
+                    cout << "Edge configuration: A.bottom - B.top, placing B below A" << endl;
+                    break;
+                case 3: 
+                    offset = cv::Point2f(- (float)sizeB.width, 0.0f);
+                    cout << "Edge configuration: A.left - B.right, placing B left of A" << endl;
+                    break;
             }
+            
             cv::Point2f posB = posA + offset;
 
-            positions[a] = {posA, 0, sizeA};
-            positions[b] = {posB, 0, sizeB};
+            positions[a] = {posA, 0.0f, sizeA};
+            positions[b] = {posB, rotationB, sizeB};
 
             edgeUsed[a][edgeA] = true;
             edgeUsed[b][edgeB] = true;
 
-            cout << "Seeded pair from match " << i << ": placed " << a << " at " << posA
-                 << " and " << b << " at " << posB << " (score=" << m.val << ")\n";
-            cout << "  Created group " << newGroup << " with pieces: " << a << ", " << b << "\n";
+            cout << "Placed piece " << a << " at [" << posA.x << ", " << posA.y << "]" << endl;
+            cout << "Placed piece " << b << " at [" << posB.x << ", " << posB.y << "]" << endl;
 
             cv::Rect2f groupBounds = getGroupBounds(newGroup);
+            cout << "Group " << newGroup << " bounds: [" << groupBounds.x << ", " << groupBounds.y << ", " 
+                 << groupBounds.width << ", " << groupBounds.height << "]" << endl;
+                 
             newGroupXCoordinate += (int)groupBounds.width + margin;
-            
-            cout << "  Group bounds: [" << groupBounds.x << ", " << groupBounds.y << ", " 
-                 << groupBounds.width << ", " << groupBounds.height << "]\n";
-            cout << "  Next seed X: " << newGroupXCoordinate << "\n";
-            positions[a] = {posA, 0.0f, sizeA};
-            positions[b] = {posB, rotationB, sizeB};
+            cout << "Next group X coordinate: " << newGroupXCoordinate << endl;
             continue;
         }
 
         if (placedA && !placedB) {
+            cout << "Case: Piece " << a << " placed, attaching piece " << b << endl;
+            
             float rotationB = calculateRequiredRotation(edgeA, edgeB);
+            cv::Size sizeA = positions[a].size;
             cv::Size sizeB = f[b].img.size();
+            
+            cout << "Piece " << a << " current size: " << sizeA.width << "x" << sizeA.height << endl;
+            cout << "Piece " << b << " original size: " << sizeB.width << "x" << sizeB.height << endl;
+            cout << "Required rotation for piece " << b << ": " << rotationB << " degrees" << endl;
+            
             if (rotationB == 90.0f || rotationB == 270.0f) {
                 sizeB = cv::Size(sizeB.height, sizeB.width);
+                cout << "Adjusted piece " << b << " size after rotation: " << sizeB.width << "x" << sizeB.height << endl;
             }
+            
             cv::Point2f posA = positions[a].position;
-            cv::Size sizeA = f[a].img.size();
             cv::Point2f offset(0.0f, 0.0f);
             switch (edgeA) {
-                case 0: offset = cv::Point2f(0.0f, - (float)sizeB.height); break;
-                case 1: offset = cv::Point2f((float)sizeA.width, 0.0f); break;
-                case 2: offset = cv::Point2f(0.0f, (float)sizeA.height); break;
-                case 3: offset = cv::Point2f(- (float)sizeB.width, 0.0f); break;
+                case 0: 
+                    offset = cv::Point2f(0.0f, -sizeB.height); 
+                    cout << "Edge configuration: A.top <-> B.bottom, placing B above A" << endl;
+                    break;
+                case 1: 
+                    offset = cv::Point2f(sizeA.width, 0.0f);
+                    cout << "Edge configuration: A.right <-> B.left, placing B right of A" << endl;
+                    break;
+                case 2: 
+                    offset = cv::Point2f(0.0f, sizeA.height);
+                    cout << "Edge configuration: A.bottom <-> B.top, placing B below A" << endl;
+                    break;
+                case 3: 
+                    offset = cv::Point2f(-sizeB.width, 0.0f);
+                    cout << "Edge configuration: A.left <-> B.right, placing B left of A" << endl;
+                    break;
             }
+            
             cv::Point2f posB = posA + offset;
-            positions[b] = { posB, 0, sizeB };
+            positions[b] = {posB, rotationB, sizeB};
 
             int groupA = groupId[a];
             groupId[b] = groupA;
@@ -553,30 +633,49 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
             edgeUsed[a][edgeA] = true;
             edgeUsed[b][edgeB] = true;
 
-            cout << "Attached piece " << b << " to placed " << a << " using match " << i
-                 << " (score=" << m.val << ")\n";
-            cout << "  Added piece " << b << " to group " << groupA << "\n";
-            positions[b] = {posB, rotationB, sizeB};
+            cout << "Attached piece " << b << " at [" << posB.x << ", " << posB.y << "] to group " << groupA << endl;
             continue;
         }
 
         if (!placedA && placedB) {
+            cout << "Case: Piece " << b << " placed, attaching piece " << a << endl;
+            
             float rotationA = calculateRequiredRotation(edgeA, edgeB);
             cv::Size sizeA = f[a].img.size();
+            cv::Size sizeB = positions[b].size;
+            
+            cout << "Piece " << a << " original size: " << sizeA.width << "x" << sizeA.height << endl;
+            cout << "Piece " << b << " current size: " << sizeB.width << "x" << sizeB.height << endl;
+            cout << "Required rotation for piece " << a << ": " << rotationA << " degrees" << endl;
+            
             if (rotationA == 90.0f || rotationA == 270.0f) {
                 sizeA = cv::Size(sizeA.height, sizeA.width);
+                cout << "Adjusted piece " << a << " size after rotation: " << sizeA.width << "x" << sizeA.height << endl;
             }
+            
             cv::Point2f posB = positions[b].position;
-            cv::Size sizeB = f[b].img.size();
             cv::Point2f offset(0.0f, 0.0f);
             switch (edgeB) {
-                case 0: offset = cv::Point2f(0.0f, - (float)sizeA.height); break;
-                case 1: offset = cv::Point2f((float)sizeB.width, 0.0f); break;
-                case 2: offset = cv::Point2f(0.0f, (float)sizeB.height); break;
-                case 3: offset = cv::Point2f(- (float)sizeA.width, 0.0f); break;
+                case 0: 
+                    offset = cv::Point2f(0.0f, -sizeA.height); 
+                    cout << "Edge configuration: B.top <-> A.bottom, placing A above B" << endl;
+                    break;
+                case 1: 
+                    offset = cv::Point2f(sizeB.width, 0.0f);
+                    cout << "Edge configuration: B.right <-> A.left, placing A right of B" << endl;
+                    break;
+                case 2: 
+                    offset = cv::Point2f(0.0f, sizeB.height);
+                    cout << "Edge configuration: B.bottom <-> A.top, placing A below B" << endl;
+                    break;
+                case 3: 
+                    offset = cv::Point2f(-sizeA.width, 0.0f);
+                    cout << "Edge configuration: B.left <-> A.right, placing A left of B" << endl;
+                    break;
             }
+            
             cv::Point2f posA = posB + offset;
-            positions[a] = { posA, 0, sizeA };
+            positions[a] = {posA, rotationA, sizeA};
 
             int groupB = groupId[b];
             groupId[a] = groupB;
@@ -585,55 +684,72 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
             edgeUsed[a][edgeA] = true;
             edgeUsed[b][edgeB] = true;
 
-            cout << "Attached piece " << a << " to placed " << b << " using match " << i
-                 << " (score=" << m.val << ")\n";
-            cout << "  Added piece " << a << " to group " << groupB << "\n";
-            positions[a] = {posA, rotationA, sizeA};
+            cout << "Attached piece " << a << " at [" << posA.x << ", " << posA.y << "] to group " << groupB << endl;
             continue;
         }
 
         if (placedA && placedB) {
+            cout << "Case: Both pieces placed, checking group connection" << endl;
+            
             int groupA = groupId[a];
             int groupB = groupId[b];
+            
+            cout << "Piece " << a << " in group " << groupA << endl;
+            cout << "Piece " << b << " in group " << groupB << endl;
             
             if (groupA != groupB) {
                 cv::Point2f posA = positions[a].position;
                 cv::Point2f posB = positions[b].position;
-                cv::Size sizeA = f[a].img.size();
-                cv::Size sizeB = f[b].img.size();
+                cv::Size sizeA = positions[a].size;
+                cv::Size sizeB = positions[b].size;
+                
+                cout << "Piece " << a << " position: [" << posA.x << ", " << posA.y << "], size: " << sizeA.width << "x" << sizeA.height << endl;
+                cout << "Piece " << b << " position: [" << posB.x << ", " << posB.y << "], size: " << sizeB.width << "x" << sizeB.height << endl;
                 
                 cv::Point2f desiredOffset(0.0f, 0.0f);
                 switch (edgeA) {
-                    case 0: desiredOffset = cv::Point2f(0.0f, - (float)sizeB.height); break;
-                    case 1: desiredOffset = cv::Point2f((float)sizeA.width, 0.0f); break;
-                    case 2: desiredOffset = cv::Point2f(0.0f, (float)sizeA.height); break;
-                    case 3: desiredOffset = cv::Point2f(- (float)sizeB.width, 0.0f); break;
+                    case 0: 
+                        desiredOffset = cv::Point2f(0.0f, -sizeB.height); 
+                        cout << "Desired: B should be above A by " << sizeB.height << " pixels" << endl;
+                        break;
+                    case 1: 
+                        desiredOffset = cv::Point2f(sizeA.width, 0.0f);
+                        cout << "Desired: B should be right of A by " << sizeA.width << " pixels" << endl;
+                        break;
+                    case 2: 
+                        desiredOffset = cv::Point2f(0.0f, sizeA.height);
+                        cout << "Desired: B should be below A by " << sizeA.height << " pixels" << endl;
+                        break;
+                    case 3: 
+                        desiredOffset = cv::Point2f(-sizeB.width, 0.0f);
+                        cout << "Desired: B should be left of A by " << sizeB.width << " pixels" << endl;
+                        break;
                 }
                 
                 cv::Point2f currentOffset = posB - posA;
                 cv::Point2f gapOffset = desiredOffset - currentOffset;
                 
-                moveGroup(groupB, gapOffset);
+                cout << "Current offset B->A: [" << currentOffset.x << ", " << currentOffset.y << "]" << endl;
+                cout << "Gap offset to fix: [" << gapOffset.x << ", " << gapOffset.y << "]" << endl;
                 
+                moveGroup(groupB, gapOffset);
                 int mergedGroup = mergeGroups(groupA, groupB);
                 
                 edgeUsed[a][edgeA] = true;
                 edgeUsed[b][edgeB] = true;
                 
-                cout << "Connected groups " << groupA << " and " << groupB << " using match " << i 
-                     << " between pieces " << a << " and " << b << " (score=" << m.val << ")\n";
-                cout << "  Merged into group " << mergedGroup << "\n";
+                cout << "Connected groups " << groupA << " and " << groupB << " into group " << mergedGroup << endl;
+            } else {
+                cout << "Skip: Both pieces already in same group " << groupA << endl;
             }
             continue;
         }
     }
 
+
     layout.positions = positions;
     layout.bounds = findTotalArea(positions);
-    layout.rows = 0;
-    layout.cols = 0;
-
-    
+       
     return layout;
 }
 

@@ -1,0 +1,3 @@
+C:/Users/7dann/Documents/CS/CSCI_576_Proj_1/build/CMakeFiles/MyImageApplication.dir
+C:/Users/7dann/Documents/CS/CSCI_576_Proj_1/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/7dann/Documents/CS/CSCI_576_Proj_1/build/CMakeFiles/ZERO_CHECK.dir
