@@ -58,6 +58,7 @@ PieceFeature extract(const Mat& piece) {
 
     int N = 40;
 
+
     pf.top    = sampleEdgeFromMat(Y, 0, N);
     pf.right  = sampleEdgeFromMat(Y, 1, N);
     pf.bottom = sampleEdgeFromMat(Y, 2, N);
@@ -65,5 +66,7 @@ PieceFeature extract(const Mat& piece) {
 
     return pf;
 }
+
+
 
 }

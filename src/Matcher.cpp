@@ -15,48 +15,48 @@
 
 using namespace std;
 using namespace cv;
-static std::ofstream scoreLog;
-struct ScoreBreakdown {
-    double L_norm = 0.0;
-    double D_ncc  = 0.0;
-    double G_norm = 0.0;
-    double P_norm = 0.0;
-    double T_norm = 0.0;
-    double colorNorm = 0.0;
-    double combined = 0.0;
-    bool nccFail = false;
-    bool colorFail = false;
-};
+// static std::ofstream scoreLog;
+// struct ScoreBreakdown {
+//     double L_norm = 0.0;
+//     double D_ncc  = 0.0;
+//     double G_norm = 0.0;
+//     double P_norm = 0.0;
+//     double T_norm = 0.0;
+//     double colorNorm = 0.0;
+//     double combined = 0.0;
+//     bool nccFail = false;
+//     bool colorFail = false;
+// };
 
-void saveMatchesToFile(const vector<Pair>& matches, const string& filename) {
-    ofstream out(filename);
-    if (!out.is_open()) {
-        cerr << "Failed to open file: " << filename << endl;
-        return;
-    }
+// void saveMatchesToFile(const vector<Pair>& matches, const string& filename) {
+//     ofstream out(filename);
+//     if (!out.is_open()) {
+//         cerr << "Failed to open file: " << filename << endl;
+//         return;
+//     }
 
-    out << "PieceA\tEdgeA\tPieceB\tEdgeB\tScore\n";
-    out << fixed << setprecision(4);
+//     out << "PieceA\tEdgeA\tPieceB\tEdgeB\tScore\n";
+//     out << fixed << setprecision(4);
 
-    for (const auto& m : matches) {
-        out << m.pieceA << "\t" << m.edgeA << "\t"
-            << m.pieceB << "\t" << m.edgeB << "\t"
-            << m.val << "\n";
-    }
+//     for (const auto& m : matches) {
+//         out << m.pieceA << "\t" << m.edgeA << "\t"
+//             << m.pieceB << "\t" << m.edgeB << "\t"
+//             << m.val << "\n";
+//     }
 
-    out.close();
-}
+//     out.close();
+// }
 
-static void initScoreLog(const std::string& path="C:\\Users\\7dann\\Documents\\CS\\edge_score_log.csv") {
-    scoreLog.open(path, std::ios::out | std::ios::trunc);
-    if (!scoreLog.is_open()) {
-        cerr << "initScoreLog: FAILED to open '" << path << "'\n";
-    } else {
-        cout << "initScoreLog: open -> '" << path << "'\n";
-        scoreLog << "pieceA,edgeA,pieceB,edgeB,L_norm,D_ncc,G_norm,P_norm,T_norm,colorNorm,nccFail,colorFail,combined\n";
-        scoreLog.flush();
-    }
-}
+// static void initScoreLog(const std::string& path="C:\\Users\\7dann\\Documents\\CS\\edge_score_log.csv") {
+//     scoreLog.open(path, std::ios::out | std::ios::trunc);
+//     if (!scoreLog.is_open()) {
+//         cerr << "initScoreLog: FAILED to open '" << path << "'\n";
+//     } else {
+//         cout << "initScoreLog: open -> '" << path << "'\n";
+//         scoreLog << "pieceA,edgeA,pieceB,edgeB,L_norm,D_ncc,G_norm,P_norm,T_norm,colorNorm,nccFail,colorFail,combined\n";
+//         scoreLog.flush();
+//     }
+// }
 
 
 static double distLuma(const EdgeFeature& a, const EdgeFeature& b)
@@ -423,7 +423,6 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
     unordered_map<int, vector<int>> groups;
     int nextGroupId = 0;
     
-    // Initialize
     for (int i = 0; i < N; ++i) {
         edgeUsed[i] = vector<bool>(4, false);
         groupId[i] = -1;
@@ -432,10 +431,9 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
     const int margin = 50;
     int newGroupXCoordinate = 0;
 
-    cout << "STARTING LAYOUT BUILDING" << endl;
+    cout << "=== STARTING LAYOUT BUILDING ===" << endl;
     cout << "Total pieces: " << N << ", Total matches: " << matches.size() << endl;
 
-    // Helper functions
     auto moveGroup = [&](int group, const cv::Point2f& offset) {
         for (int piece : groups[group]) {
             positions[piece].position += offset;
@@ -491,7 +489,6 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         return true;
     };
 
-    // Process matches
     for (size_t i = 0; i < matches.size(); i++) {
         const Pair &m = matches[i];
         int a = m.pieceA;
@@ -499,7 +496,7 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         int edgeA = m.edgeA;
         int edgeB = m.edgeB;
         
-        cout << "\n=== Processing match " << i << " ===" << endl;
+        cout << "\nProcessing match " << i << " ===" << endl;
         cout << "Piece " << a << " (edge " << edgeA << ") <-> Piece " << b << " (edge " << edgeB << "), Score: " << m.val << endl;
         
         if (allPiecesConnected()) {
@@ -508,11 +505,11 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         }
         
         if (edgeUsed[a][edgeA]) {
-            cout << "Skip: Edge " << edgeA << " of piece " << a << " already used." << endl;
+            cout << "SKIP: Edge " << edgeA << " of piece " << a << " already used." << endl;
             continue;
         }
         if (edgeUsed[b][edgeB]) {
-            cout << "Skip: Edge " << edgeB << " of piece " << b << " already used." << endl;
+            cout << "SKIP: Edge " << edgeB << " of piece " << b << " already used." << endl;
             continue;
         }
 
@@ -523,7 +520,7 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         cout << "Piece " << b << " placed: " << (placedB ? "YES" : "NO") << endl;
 
         if (!placedA && !placedB) {
-            cout << "Case: Neither piece placed - creating new group" << endl;
+            cout << "CASE: Neither piece placed - creating new group" << endl;
             
             float rotationB = calculateRequiredRotation(edgeA, edgeB);
             cv::Size sizeA = f[a].img.size();
@@ -550,19 +547,19 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
             switch (edgeA) {
                 case 0: 
                     offset = cv::Point2f(0.0f, - (float)sizeB.height); 
-                    cout << "Edge configuration: A.top - B.bottom, placing B above A" << endl;
+                    cout << "Edge configuration: A.top <-> B.bottom, placing B above A" << endl;
                     break;
                 case 1: 
                     offset = cv::Point2f((float)sizeA.width, 0.0f);
-                    cout << "Edge configuration: A.right - B.left, placing B right of A" << endl;
+                    cout << "Edge configuration: A.right <-> B.left, placing B right of A" << endl;
                     break;
                 case 2: 
                     offset = cv::Point2f(0.0f, (float)sizeA.height);
-                    cout << "Edge configuration: A.bottom - B.top, placing B below A" << endl;
+                    cout << "Edge configuration: A.bottom <-> B.top, placing B below A" << endl;
                     break;
                 case 3: 
                     offset = cv::Point2f(- (float)sizeB.width, 0.0f);
-                    cout << "Edge configuration: A.left - B.right, placing B left of A" << endl;
+                    cout << "Edge configuration: A.left <-> B.right, placing B left of A" << endl;
                     break;
             }
             
@@ -587,7 +584,7 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         }
 
         if (placedA && !placedB) {
-            cout << "Case: Piece " << a << " placed, attaching piece " << b << endl;
+            cout << "CASE: Piece " << a << " placed, attaching piece " << b << endl;
             
             float rotationB = calculateRequiredRotation(edgeA, edgeB);
             cv::Size sizeA = positions[a].size;
@@ -638,7 +635,7 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         }
 
         if (!placedA && placedB) {
-            cout << "Case: Piece " << b << " placed, attaching piece " << a << endl;
+            cout << "CASE: Piece " << b << " placed, attaching piece " << a << endl;
             
             float rotationA = calculateRequiredRotation(edgeA, edgeB);
             cv::Size sizeA = f[a].img.size();
@@ -689,7 +686,7 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         }
 
         if (placedA && placedB) {
-            cout << "Case: Both pieces placed, checking group connection" << endl;
+            cout << "CASE: Both pieces placed, checking group connection" << endl;
             
             int groupA = groupId[a];
             int groupB = groupId[b];
@@ -740,16 +737,64 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
                 
                 cout << "Connected groups " << groupA << " and " << groupB << " into group " << mergedGroup << endl;
             } else {
-                cout << "Skip: Both pieces already in same group " << groupA << endl;
+                cout << "SKIP: Both pieces already in same group " << groupA << endl;
             }
             continue;
         }
     }
 
+    cout << "\nFINAL PLACEMENT STATUS" << endl;
+    for (int i = 0; i < N; i++) {
+        if (positions.count(i)) {
+            cout << "Piece " << i << ": placed at [" << positions[i].position.x << ", " << positions[i].position.y << "]" << endl;
+        } else {
+            cout << "Piece " << i << ": MISSING" << endl;
+        }
+    }
+
+    // Place missing pieces at the bottom
+    // vector<int> missingPieces;
+    // for (int i = 0; i < N; i++) {
+    //     if (positions.count(i) == 0) {
+    //         missingPieces.push_back(i);
+    //     }
+    // }
+    // if (!missingPieces.empty()) {
+    //     cout << "\nPlacing " << missingPieces.size() << " missing pieces in grid" << endl;
+    //     float startX = 0;
+    //     float startY = layout.bounds.y + layout.bounds.height + margin;
+    //     float currentX = startX;
+    //     float currentY = startY;
+    //     float maxHeightInRow = 0;
+        
+    //     for (int i = 0; i < missingPieces.size(); i++) {
+    //         int pieceId = missingPieces[i];
+    //         cv::Size size = f[pieceId].img.size();
+            
+    //         positions[pieceId] = {cv::Point2f(currentX, currentY), 0.0f, size};
+            
+    //         cout << "Placed missing piece " << pieceId << " at [" << currentX << ", " << currentY << "]" << endl;
+            
+    //         currentX += size.width + margin;
+    //         maxHeightInRow = max(maxHeightInRow, (float)size.height);
+            
+    //         // Move to next row if we exceed width
+    //         if (i < missingPieces.size() - 1 && currentX + f[missingPieces[i+1]].img.cols > canvasW) {
+    //             currentX = startX;
+    //             currentY += maxHeightInRow + margin;
+    //             maxHeightInRow = 0;
+    //         }
+    //     }
+    // }
 
     layout.positions = positions;
     layout.bounds = findTotalArea(positions);
-       
+    
+    cout << "\nLAYOUT COMPLETE" << endl;
+    cout << "Total pieces placed: " << layout.positions.size() << "/" << N << endl;
+    cout << "Layout bounds: [" << layout.bounds.x << ", " << layout.bounds.y << ", " 
+         << layout.bounds.width << ", " << layout.bounds.height << "]" << endl;
+    
     return layout;
 }
 

@@ -9,8 +9,7 @@ struct EdgeFeature {
 struct PieceFeature {
     cv::Mat img;
     EdgeFeature top, right, bottom, left;
-    std::vector<cv::KeyPoint> keypoints[4];
-    cv::Mat descriptors[4];
+
 };
 
 

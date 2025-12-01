@@ -17,14 +17,18 @@ using namespace cv;
 int main() {
     // string pathRGB     = "./data_sample/starry_night_translate.rgb";
     // string pathPNG  = "./data_sample/starry_night_translate.png";
-    // string pathRGB     = "./data_sample/starry_night_rotate.rgb";
-    // string pathPNG  = "./data_sample/starry_night_rotate.png";
-    string pathRGB     = "./data_sample/more_samples/more_samples/sample1/sample1_translate.rgb";
-    string pathPNG  = "./data_sample/more_samples/more_samples/sample1/sample1_translate.png";
+    string pathRGB     = "./data_sample/starry_night_rotate.rgb";
+    string pathPNG  = "./data_sample/starry_night_rotate.png";
+    // string pathRGB     = "./data_sample/more_samples/more_samples/sample1/sample1_translate.rgb";
+    // string pathPNG  = "./data_sample/more_samples/more_samples/sample1/sample1_translate.png";
+    // string pathRGB     = "./data_sample/more_samples/more_samples/sample1/sample1_rotate.rgb";
+    // string pathPNG  = "./data_sample/more_samples/more_samples/sample1/sample1_rotate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample2/sample2_translate.rgb";
     // string pathPNG  = "./data_sample/more_samples/more_samples/sample2/sample2_translate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample3/sample3_translate.rgb";
     // string pathPNG  = "./data_sample/more_samples/more_samples/sample3/sample3_translate.png";
+    // string pathRGB     = "./data_sample/more_samples/more_samples/sample3/sample3_rotate.rgb";
+    // string pathPNG  = "./data_sample/more_samples/more_samples/sample3/sample3_rotate.png";
 
     // Load helper PNG
     Mat img = imread(pathPNG, IMREAD_COLOR);
@@ -79,13 +83,30 @@ int main() {
 
         float angle = box.angle;
         Size2f boxSize = box.size;
-        if (box.angle < -45.0f) {
-            angle += 90.0f;
-            swap(boxSize.width, boxSize.height);
-        }
+        bool isWidthLarger = boxSize.width > boxSize.height;
 
+        if (isWidthLarger) {
+            if (angle < -45.0f) {
+                angle += 90.0f;
+                swap(boxSize.width, boxSize.height);
+            } 
+            else if (angle > 45.0f) {
+                angle -= 90.0f;
+                swap(boxSize.width, boxSize.height);
+            }
+        } 
+        else {
+            if (angle < -45.0f) {
+                angle += 90.0f;
+                swap(boxSize.width, boxSize.height);
+            }
+            else if (angle > 45.0f) {
+                angle -= 90.0f;
+                swap(boxSize.width, boxSize.height);
+            }
+        }
         bool isSignificantlyRotated = (fabs(angle) > 2.0f && fabs(angle) < 88.0f);
-        
+
         if (isSignificantlyRotated) {
             // Only rotate if the piece is actually rotated
             Mat M = getRotationMatrix2D(box.center, angle, 1.0);
@@ -198,10 +219,7 @@ int main() {
     vector<PieceFeature> features;
     for (auto& p : pieces) features.push_back(FeatureExtractor::extract(p));
 
-
     vector<Pair> allMatches = Matcher::createFilteredMatches(features, 0.8);
-    // vector<Pair> allMatches = createHybridMatches(features, 1.4, 3, 1000);
-    // vector<Pair> allMatches = Matcher::createEnhancedMatches(features, 1.4, 3, 1000);
 
     PuzzleLayout layout = Matcher::buildLayout(allMatches, features, canvasW, canvasH);
 
