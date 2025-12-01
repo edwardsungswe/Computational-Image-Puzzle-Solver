@@ -247,6 +247,21 @@ double computeTextureConsistency(const Mat& imgA, const Mat& imgB, int edgeA, in
 }
 
 
+Mat reverseMat(const Mat& m) {
+    Mat reversed = m.clone();
+    for (int i = 0; i < m.rows / 2; i++) {
+        int j = m.rows - 1 - i;
+        if (m.channels() == 1) {
+            std::swap(reversed.at<uchar>(i, 0), reversed.at<uchar>(j, 0));
+        } else if (m.channels() == 3) {
+            Vec3b temp = reversed.at<Vec3b>(i, 0);
+            reversed.at<Vec3b>(i, 0) = reversed.at<Vec3b>(j, 0);
+            reversed.at<Vec3b>(j, 0) = temp;
+        }
+    }
+    return reversed;
+}
+
 double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA, int edgeB) {
     const int N = 40;
 
@@ -263,9 +278,21 @@ double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA,
     const EdgeFeature& efA = (edgeA == 0) ? A.top : (edgeA == 1) ? A.right : (edgeA == 2) ? A.bottom : A.left;
     const EdgeFeature& efB = (edgeB == 0) ? B.top : (edgeB == 1) ? B.right : (edgeB == 2) ? B.bottom : B.left;
 
+    bool areComplementary = ((edgeA == 0 && edgeB == 2) || (edgeA == 2 && edgeB == 0) ||
+                             (edgeA == 1 && edgeB == 3) || (edgeA == 3 && edgeB == 1));
+    
+    Mat Bhsv_reversed = areComplementary ? reverseMat(Bhsv) : Bhsv;
+    Mat Bgrad_reversed = areComplementary ? reverseMat(Bgrad) : Bgrad;
+    
+    double C_forward = distColor(Ahsv, Bhsv);
+    double C_reverse = distColor(Ahsv, Bhsv_reversed);
+    double C = min(C_forward, C_reverse);
+    
+    double G_forward = distGradient(Agrad, Bgrad);
+    double G_reverse = distGradient(Agrad, Bgrad_reversed);
+    double G = min(G_forward, G_reverse);
+
     double L = distLuma(efA, efB);
-    double C = distColor(Ahsv, Bhsv);
-    double G = distGradient(Agrad, Bgrad);
     double P = computeEdgeProfileCompatibility(efA, efB);
     double T = computeTextureConsistency(A.img, B.img, edgeA, edgeB);
 
@@ -702,30 +729,46 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
                 
                 cout << "Piece " << a << " position: [" << posA.x << ", " << posA.y << "], size: " << sizeA.width << "x" << sizeA.height << endl;
                 cout << "Piece " << b << " position: [" << posB.x << ", " << posB.y << "], size: " << sizeB.width << "x" << sizeB.height << endl;
-                
+
                 cv::Point2f desiredOffset(0.0f, 0.0f);
-                switch (edgeA) {
-                    case 0: 
-                        desiredOffset = cv::Point2f(0.0f, -sizeB.height); 
-                        cout << "Desired: B should be above A by " << sizeB.height << " pixels" << endl;
-                        break;
-                    case 1: 
-                        desiredOffset = cv::Point2f(sizeA.width, 0.0f);
-                        cout << "Desired: B should be right of A by " << sizeA.width << " pixels" << endl;
-                        break;
-                    case 2: 
+
+                if ((edgeA == 0 && edgeB == 2) || (edgeA == 2 && edgeB == 0)) {
+                    if (edgeA == 0) {
+                        desiredOffset = cv::Point2f(0.0f, -sizeB.height);
+                    } else {
                         desiredOffset = cv::Point2f(0.0f, sizeA.height);
-                        cout << "Desired: B should be below A by " << sizeA.height << " pixels" << endl;
-                        break;
-                    case 3: 
+                    }
+                    cout << "Vertical connection: B should be " << (edgeA == 0 ? "above" : "below") << " A" << endl;
+                } else if ((edgeA == 1 && edgeB == 3) || (edgeA == 3 && edgeB == 1)) {
+                    if (edgeA == 1) {
+                        desiredOffset = cv::Point2f(sizeA.width, 0.0f);
+                    } else {
                         desiredOffset = cv::Point2f(-sizeB.width, 0.0f);
-                        cout << "Desired: B should be left of A by " << sizeB.width << " pixels" << endl;
-                        break;
+                    }
+                    cout << "Horizontal connection: B should be to the " << (edgeA == 1 ? "right" : "left") << " of A" << endl;
+                } else {
+                    // This shouldn't happen for valid matches, but handle it
+                    cout << "WARNING: Non-complementary edges in match!" << endl;
+                    switch (edgeA) {
+                        case 0: 
+                            desiredOffset = cv::Point2f(0.0f, -sizeB.height); 
+                            break;
+                        case 1: 
+                            desiredOffset = cv::Point2f(sizeA.width, 0.0f);
+                            break;
+                        case 2: 
+                            desiredOffset = cv::Point2f(0.0f, sizeA.height);
+                            break;
+                        case 3: 
+                            desiredOffset = cv::Point2f(-sizeB.width, 0.0f);
+                            break;
+                    }
                 }
                 
                 cv::Point2f currentOffset = posB - posA;
                 cv::Point2f gapOffset = desiredOffset - currentOffset;
                 
+                cout << "Desired offset B->A: [" << desiredOffset.x << ", " << desiredOffset.y << "]" << endl;
                 cout << "Current offset B->A: [" << currentOffset.x << ", " << currentOffset.y << "]" << endl;
                 cout << "Gap offset to fix: [" << gapOffset.x << ", " << gapOffset.y << "]" << endl;
                 
