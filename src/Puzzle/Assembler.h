@@ -1,8 +1,8 @@
 #pragma once
 #include <vector>
 #include <opencv2/opencv.hpp>
-#include "FeatureExtractor.h"
-#include "Matcher.h"
+#include "../Features/FeatureExtractor.h"
+#include "../Matching/PieceMatcher.h"
 
 namespace Assembler {
 

@@ -2,8 +2,8 @@
 
 #include <opencv2/opencv.hpp>
 #include <vector>
-#include "../FeatureExtractor.h"
-#include "../Matcher.h"
+#include "../Features/FeatureExtractor.h"
+#include "../Matching/PieceMatcher.h"
 
 namespace PuzzleAnimator {
 

@@ -1,5 +1,5 @@
 #include "PuzzleAnimator.h"
-#include "../Matcher.h"
+#include "../Matching/PieceMatcher.h"
 #include <iostream>
 #include <cmath>
 #include <filesystem>

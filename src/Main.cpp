@@ -4,9 +4,9 @@
 #include <cstdlib>
 #include <opencv2/opencv.hpp>
 
-#include "FeatureExtractor.h"
-#include "Matcher.h"
-#include "Assembler.h"
+#include "Features/FeatureExtractor.h"
+#include "Matching/PieceMatcher.h"
+#include "Puzzle/Assembler.h"
 #include "ImageIO/ImageLoader.h"
 #include "Pieces/PieceExtractor.h"
 #include "Animation/PuzzleAnimator.h"
@@ -17,14 +17,16 @@ using namespace cv;
 int main() {
     // string pathRGB     = "./data_sample/starry_night_translate.rgb";
     // string pathPNG  = "./data_sample/starry_night_translate.png";
-    string pathRGB     = "./data_sample/starry_night_rotate.rgb";
-    string pathPNG  = "./data_sample/starry_night_rotate.png";
+    // string pathRGB     = "./data_sample/starry_night_rotate.rgb";
+    // string pathPNG  = "./data_sample/starry_night_rotate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample1/sample1_translate.rgb";
     // string pathPNG  = "./data_sample/more_samples/more_samples/sample1/sample1_translate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample1/sample1_rotate.rgb";
     // string pathPNG  = "./data_sample/more_samples/more_samples/sample1/sample1_rotate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample2/sample2_translate.rgb";
-    // string pathPNG  = "./data_sample/more_samples/more_samples/sample2/sample2_translate.png";
+    string pathPNG  = "./data_sample/more_samples/more_samples/sample2/sample2_translate.png";
+    string pathRGB     = "./data_sample/more_samples/more_samples/sample2/sample2_rotate.rgb";
+    // string pathPNG  = "./data_sample/more_samples/more_samples/sample2/sample2_rotate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample3/sample3_translate.rgb";
     // string pathPNG  = "./data_sample/more_samples/more_samples/sample3/sample3_translate.png";
     // string pathRGB     = "./data_sample/more_samples/more_samples/sample3/sample3_rotate.rgb";
@@ -105,7 +107,7 @@ int main() {
                 swap(boxSize.width, boxSize.height);
             }
         }
-        bool isSignificantlyRotated = (fabs(angle) > 2.0f && fabs(angle) < 88.0f);
+        bool isSignificantlyRotated = (fabs(angle) > 1.0f && fabs(angle) < 89.0f);
 
         if (isSignificantlyRotated) {
             // Only rotate if the piece is actually rotated

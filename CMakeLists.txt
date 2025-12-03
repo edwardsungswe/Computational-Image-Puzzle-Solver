@@ -8,9 +8,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Source files
 set(SOURCES
     src/Main.cpp
-    src/FeatureExtractor.cpp
-    src/Matcher.cpp
-    src/Assembler.cpp
+    src/Features/FeatureExtractor.cpp
+    src/Matching/PieceMatcher.cpp
+    src/Puzzle/Assembler.cpp
 )
 
 # OpenCV
