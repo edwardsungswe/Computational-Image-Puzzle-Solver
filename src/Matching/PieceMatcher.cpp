@@ -62,11 +62,75 @@ using namespace cv;
 static double distLuma(const EdgeFeature& a, const EdgeFeature& b)
 {
     double s = 0;
-    for (int i = 0; i < a.vals.size(); i++) {
+    // deal with different length of feature vectors
+    int minSize = min(a.vals.size(), b.vals.size());
+    for (int i = 0; i < minSize; i++) {
         double d = a.vals[i] - b.vals[i];
         s += d * d;
     }
+    // if length is different, penalize the extra part
+    if (a.vals.size() != b.vals.size()) {
+        s += abs(static_cast<int>(a.vals.size() - b.vals.size())) * 100.0;
+    }
     return s;
+}
+
+// RGB sample point distance (preserve spatial order, for shape matching)
+static double distRGBProfile(const EdgeFeature& a, const EdgeFeature& b)
+{
+    if (a.rgbVals.empty() || b.rgbVals.empty()) {
+        return distLuma(a, b);  // fallback to luma
+    }
+    
+    double s = 0.0;
+    int minSize = min(a.rgbVals.size(), b.rgbVals.size());
+    for (int i = 0; i < minSize; i++) {
+        Vec3d diff = a.rgbVals[i] - b.rgbVals[i];
+        s += diff[0]*diff[0] + diff[1]*diff[1] + diff[2]*diff[2];
+    }
+    if (a.rgbVals.size() != b.rgbVals.size()) {
+        s += abs(static_cast<int>(a.rgbVals.size() - b.rgbVals.size())) * 100.0;
+    }
+    return s;
+}
+
+// RGB histogram distance
+static double distHistogram(const EdgeFeature& a, const EdgeFeature& b)
+{
+    if (a.histogram.empty() || b.histogram.empty()) {
+        return 0.0;  // if no histogram, return 0
+    }
+    
+    // L2 distance
+    double s = 0.0;
+    int minSize = min(a.histogram.size(), b.histogram.size());
+    for (int i = 0; i < minSize; i++) {
+        double d = a.histogram[i] - b.histogram[i];
+        s += d * d;
+    }
+    if (a.histogram.size() != b.histogram.size()) {
+        s += abs(static_cast<int>(a.histogram.size() - b.histogram.size())) * 0.1;
+    }
+    return s;
+}
+
+// chi-square distance
+static double distHistogramChiSquare(const EdgeFeature& a, const EdgeFeature& b)
+{
+    if (a.histogram.empty() || b.histogram.empty()) {
+        return distHistogram(a, b);
+    }
+    
+    double s = 0.0;
+    int minSize = min(a.histogram.size(), b.histogram.size());
+    for (int i = 0; i < minSize; i++) {
+        double sum = a.histogram[i] + b.histogram[i];
+        if (sum > 1e-6) {
+            double diff = a.histogram[i] - b.histogram[i];
+            s += (diff * diff) / sum;
+        }
+    }
+    return s * 0.5; 
 }
 
 
@@ -154,33 +218,72 @@ Mat matEdgeGrad(const Mat& imgGray, int edge, int N)
 }
 
 double computeEdgeProfileCompatibility(const EdgeFeature& efA, const EdgeFeature& efB) {
+    // use RGB sample points first, if not, use grayscale values
+    bool useRGB = !efA.rgbVals.empty() && !efB.rgbVals.empty();
     
-    vector<double> reversedB = efB.vals;
-    reverse(reversedB.begin(), reversedB.end());
-    
-    double forwardMatch = 0.0, reverseMatch = 0.0;
-    double forwardSlopeConsistency = 0.0, reverseSlopeConsistency = 0.0;
-    
-    for (int i = 0; i < efA.vals.size(); i++) {
-        double diffForward = efA.vals[i] - efB.vals[i];
-        double diffReverse = efA.vals[i] - reversedB[i];
-        forwardMatch += diffForward * diffForward;
-        reverseMatch += diffReverse * diffReverse;
+    if (useRGB) {
+        // use RGB sample points for shape matching
+        vector<Vec3d> reversedB = efB.rgbVals;
+        reverse(reversedB.begin(), reversedB.end());
         
-        if (i > 0) {
-            double slopeA = efA.vals[i] - efA.vals[i-1];
-            double slopeB_forward = efB.vals[i] - efB.vals[i-1];
-            double slopeB_reverse = reversedB[i] - reversedB[i-1];
+        double forwardMatch = 0.0, reverseMatch = 0.0;
+        double forwardSlopeConsistency = 0.0, reverseSlopeConsistency = 0.0;
+        
+        int minSize = min(efA.rgbVals.size(), efB.rgbVals.size());
+        for (int i = 0; i < minSize; i++) {
+            Vec3d diffForward = efA.rgbVals[i] - efB.rgbVals[i];
+            Vec3d diffReverse = efA.rgbVals[i] - reversedB[i];
+            forwardMatch += diffForward[0]*diffForward[0] + diffForward[1]*diffForward[1] + diffForward[2]*diffForward[2];
+            reverseMatch += diffReverse[0]*diffReverse[0] + diffReverse[1]*diffReverse[1] + diffReverse[2]*diffReverse[2];
             
-            forwardSlopeConsistency += abs(slopeA + slopeB_forward);
-            reverseSlopeConsistency += abs(slopeA + slopeB_reverse);
+            if (i > 0) {
+                Vec3d slopeA = efA.rgbVals[i] - efA.rgbVals[i-1];
+                Vec3d slopeB_forward = efB.rgbVals[i] - efB.rgbVals[i-1];
+                Vec3d slopeB_reverse = reversedB[i] - reversedB[i-1];
+                
+                Vec3d slopeDiffForward = slopeA + slopeB_forward;
+                Vec3d slopeDiffReverse = slopeA + slopeB_reverse;
+                forwardSlopeConsistency += sqrt(slopeDiffForward[0]*slopeDiffForward[0] + 
+                                                slopeDiffForward[1]*slopeDiffForward[1] + 
+                                                slopeDiffForward[2]*slopeDiffForward[2]);
+                reverseSlopeConsistency += sqrt(slopeDiffReverse[0]*slopeDiffReverse[0] + 
+                                               slopeDiffReverse[1]*slopeDiffReverse[1] + 
+                                               slopeDiffReverse[2]*slopeDiffReverse[2]);
+            }
         }
-    }
+        
+        double profileScore = min(forwardMatch, reverseMatch);
+        double slopeScore = min(forwardSlopeConsistency, reverseSlopeConsistency);
+        return profileScore + slopeScore * 0.1;
+    } else {
+        // fallback to grayscale values
+        vector<double> reversedB = efB.vals;
+        reverse(reversedB.begin(), reversedB.end());
+        
+        double forwardMatch = 0.0, reverseMatch = 0.0;
+        double forwardSlopeConsistency = 0.0, reverseSlopeConsistency = 0.0;
+        
+        int minSize = min(efA.vals.size(), efB.vals.size());
+        for (int i = 0; i < minSize; i++) {
+            double diffForward = efA.vals[i] - efB.vals[i];
+            double diffReverse = efA.vals[i] - reversedB[i];
+            forwardMatch += diffForward * diffForward;
+            reverseMatch += diffReverse * diffReverse;
+            
+            if (i > 0) {
+                double slopeA = efA.vals[i] - efA.vals[i-1];
+                double slopeB_forward = efB.vals[i] - efB.vals[i-1];
+                double slopeB_reverse = reversedB[i] - reversedB[i-1];
+                
+                forwardSlopeConsistency += abs(slopeA + slopeB_forward);
+                reverseSlopeConsistency += abs(slopeA + slopeB_reverse);
+            }
+        }
 
-    double profileScore = min(forwardMatch, reverseMatch);
-    double slopeScore = min(forwardSlopeConsistency, reverseSlopeConsistency);
-    
-    return profileScore + slopeScore * 0.1;
+        double profileScore = min(forwardMatch, reverseMatch);
+        double slopeScore = min(forwardSlopeConsistency, reverseSlopeConsistency);
+        return profileScore + slopeScore * 0.1;
+    }
 }
 
 Mat extractTexturePatch(const Mat& img, int edge, int distanceFromEdge, int patchWidth) {
@@ -292,23 +395,26 @@ double edgeDistanceFull(const PieceFeature& A, const PieceFeature& B, int edgeA,
     double G_reverse = distGradient(Agrad, Bgrad_reversed);
     double G = min(G_forward, G_reverse);
 
-    double L = distLuma(efA, efB);
-    double P = computeEdgeProfileCompatibility(efA, efB);
+    // mixed feature matching: RGB sample points + histogram
+    double H = distHistogram(efA, efB);           // RGB histogram
+    double RGB = distRGBProfile(efA, efB);        // RGB sample points (spatial order, for color matching)
+    double P = computeEdgeProfileCompatibility(efA, efB);  // shape matching (using RGB sample points)
     double T = computeTextureConsistency(A.img, B.img, edgeA, edgeB);
 
-    double dist = 
-        1.5 * L +        // Luma structure
-        0.5 * C +        // Color consistency  
-        1.0 * G +        // Gradient strength
-        4.0 * P +        // Profile compatibility
-        2.0 * T;        // Texture consistency
+    // recommended weight configuration:
+    // - Profile (P): most important, for matching edge shape (convex/concave)
+    // - RGB sample points: for color and texture matching
+    // - histogram: auxiliary feature, robust to noise
+    // - gradient: edge strength
+    // - HSV color: auxiliary color matching
+    double dist = 4.0 * P + 2.0 * RGB + 1.0 * H + 0.3 * C + 1.0 * G + 1.5 * T;
 
  
 
     return dist;
 }
 
-namespace Matcher {
+namespace PieceMatcher {
 vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double ratioTestThreshold)
 {
     vector<Pair> matches;
@@ -337,14 +443,24 @@ vector<Pair> createFilteredMatches(const vector<PieceFeature>& features, double 
     sort(matches.begin(), matches.end(), 
         [](const Pair& a, const Pair& b) { return a.val < b.val; });
     
-    int checkFirstN = min(20, (int)matches.size());
+    // ensure more pieces can be matched
+    int checkFirstN = min(30, (int)matches.size());  // increase check count
     double avgTopScores = 0;
-    for (int i = 0; i < checkFirstN; i++) {
-        avgTopScores += matches[i].val;
+    if (checkFirstN > 0) {
+        for (int i = 0; i < checkFirstN; i++) {
+            avgTopScores += matches[i].val;
+        }
+        avgTopScores /= checkFirstN;
+    } else {
+        avgTopScores = 1000.0;  // if no match, set a very large value
     }
-    avgTopScores /= checkFirstN;
     
-    double scoreCutoff = avgTopScores * 4.0;
+    // loosen cutoff: from 4.0 to 6.0, allow more matches to pass
+    double scoreCutoff = avgTopScores * 6.0;
+    
+    cout << "Match filtering: avgTopScore=" << avgTopScores 
+         << ", cutoff=" << scoreCutoff 
+         << ", total matches=" << matches.size() << endl;
     
     vector<Pair> goodMatches;
     unordered_map<int, double> bestScoreForEdge;
@@ -420,6 +536,49 @@ Mat rotatePiece(const Mat& img, float rotation) {
     Mat rotated;
     warpAffine(img, rotated, rotationMatrix, img.size());
     return rotated;
+}
+
+// global consistency check: detect left-right swap problem
+// check middle column edge matching quality to determine
+static double checkGlobalConsistency(const vector<vector<int>>& grid, 
+                                     const unordered_map<int, PiecePosition>& positions,
+                                     const vector<PieceFeature>& features,
+                                     int rows, int cols) {
+    if (cols < 2) return 0.0;  // at least 2 columns are needed to check
+    
+    double totalInconsistency = 0.0;
+    int checks = 0;
+    
+    // check middle column (most likely place for left-right swap)
+    int midCol = cols / 2;
+    
+    for (int r = 0; r < rows; r++) {
+        if (grid[r][midCol] >= 0 && midCol > 0 && grid[r][midCol-1] >= 0) {
+            int leftPiece = grid[r][midCol-1];
+            int rightPiece = grid[r][midCol];
+            
+            // check match quality of right edge of left piece and left edge of right piece
+            double matchScore = edgeDistanceFull(
+                features[leftPiece], features[rightPiece],
+                1, 3  // right edge vs left edge
+            );
+            
+            // check "flipped" match (if left-right swap)
+            // check left edge of left piece and right edge of right piece (this should not match)
+            double wrongMatchScore = edgeDistanceFull(
+                features[leftPiece], features[rightPiece],
+                3, 1  // left edge vs right edge (wrong direction)
+            );
+            
+            // if wrong direction match is better, it means left-right swap may have occurred
+            if (wrongMatchScore < matchScore * 0.8) {
+                totalInconsistency += (matchScore - wrongMatchScore);
+            }
+            checks++;
+        }
+    }
+    
+    return (checks > 0) ? totalInconsistency / checks : 0.0;
 }
 
 float calculateRequiredRotation(int edgeA, int edgeB) {
@@ -786,49 +945,56 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
         }
     }
 
-    // cout << "\nFINAL PLACEMENT STATUS" << endl;
+    cout << "\nFINAL PLACEMENT STATUS" << endl;
+    vector<int> missingPieces;
     for (int i = 0; i < N; i++) {
         if (positions.count(i)) {
-            // cout << "Piece " << i << ": placed at [" << positions[i].position.x << ", " << positions[i].position.y << "]" << endl;
+            // cout << "Piece " << i << ": placed at [" << positions[i].position.x << ", " 
+            //      << positions[i].position.y << "]" << endl;
         } else {
             // cout << "Piece " << i << ": MISSING" << endl;
+            missingPieces.push_back(i);
         }
     }
 
-    // Place missing pieces at the bottom
-    // vector<int> missingPieces;
-    // for (int i = 0; i < N; i++) {
-    //     if (positions.count(i) == 0) {
-    //         missingPieces.push_back(i);
-    //     }
-    // }
-    // if (!missingPieces.empty()) {
-    //     cout << "\nPlacing " << missingPieces.size() << " missing pieces in grid" << endl;
-    //     float startX = 0;
-    //     float startY = layout.bounds.y + layout.bounds.height + margin;
-    //     float currentX = startX;
-    //     float currentY = startY;
-    //     float maxHeightInRow = 0;
+    if (!missingPieces.empty()) {
+        // cout << "\nPlacing " << missingPieces.size() << " missing pieces in grid" << endl;
         
-    //     for (int i = 0; i < missingPieces.size(); i++) {
-    //         int pieceId = missingPieces[i];
-    //         cv::Size size = f[pieceId].img.size();
+        // calculate boundaries of placed pieces
+        float startX = 0;
+        float startY = 0;
+        if (!positions.empty()) {
+            cv::Rect2f existingBounds = findTotalArea(positions);
+            startX = 0;
+            startY = existingBounds.y + existingBounds.height + margin * 2;
+        }
+        
+        float currentX = startX;
+        float currentY = startY;
+        float maxHeightInRow = 0;
+        
+        for (size_t i = 0; i < missingPieces.size(); i++) {
+            int pieceId = missingPieces[i];
+            cv::Size size = f[pieceId].img.size();
             
-    //         positions[pieceId] = {cv::Point2f(currentX, currentY), 0.0f, size};
+            positions[pieceId] = {cv::Point2f(currentX, currentY), 0.0f, size};
             
-    //         cout << "Placed missing piece " << pieceId << " at [" << currentX << ", " << currentY << "]" << endl;
+            // cout << "Placed missing piece " << pieceId << " at [" << currentX << ", " << currentY << "]" << endl;
             
-    //         currentX += size.width + margin;
-    //         maxHeightInRow = max(maxHeightInRow, (float)size.height);
+            currentX += size.width + margin;
+            maxHeightInRow = max(maxHeightInRow, (float)size.height);
             
-    //         // Move to next row if we exceed width
-    //         if (i < missingPieces.size() - 1 && currentX + f[missingPieces[i+1]].img.cols > canvasW) {
-    //             currentX = startX;
-    //             currentY += maxHeightInRow + margin;
-    //             maxHeightInRow = 0;
-    //         }
-    //     }
-    // }
+            // if exceeds canvas width, new line
+            if (i < missingPieces.size() - 1) {
+                cv::Size nextSize = f[missingPieces[i+1]].img.size();
+                if (currentX + nextSize.width > canvasW) {
+                    currentX = startX;
+                    currentY += maxHeightInRow + margin;
+                    maxHeightInRow = 0;
+                }
+            }
+        }
+    }
 
     layout.positions = positions;
     layout.bounds = findTotalArea(positions);
@@ -838,7 +1004,313 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
     // cout << "Layout bounds: [" << layout.bounds.x << ", " << layout.bounds.y << ", " 
     //      << layout.bounds.width << ", " << layout.bounds.height << "]" << endl;
     
+    // verify: check for overlap or anomalies
+    for (const auto& entry1 : positions) {
+        for (const auto& entry2 : positions) {
+            if (entry1.first >= entry2.first) continue;
+            
+            cv::Rect2f rect1(entry1.second.position.x, entry1.second.position.y,
+                           entry1.second.size.width, entry1.second.size.height);
+            cv::Rect2f rect2(entry2.second.position.x, entry2.second.position.y,
+                           entry2.second.size.width, entry2.second.size.height);
+            
+            cv::Rect2f intersection = rect1 & rect2;
+            if (intersection.area() > 100) {  // if overlap area is greater than 100 pixels
+                cout << "WARNING: Pieces " << entry1.first << " and " << entry2.first 
+                     << " have significant overlap (" << intersection.area() << " pixels)" << endl;
+            }
+        }
+    }
+    
     return layout;
+}
+
+// Raster scan
+PuzzleLayout buildLayoutRasterScan(const vector<PieceFeature>& features, int canvasW, int canvasH) {
+    int N = features.size();
+    if (N == 0) {
+        PuzzleLayout empty;
+        return empty;
+    }
+    
+    cout << "\n=== RASTER SCAN LAYOUT BUILDING ===" << endl;
+    cout << "Total pieces: " << N << endl;
+    
+    // check if piece sizes are similar
+    int avgWidth = 0, avgHeight = 0;
+    int minWidth = INT_MAX, maxWidth = 0;
+    int minHeight = INT_MAX, maxHeight = 0;
+    for (const auto& f : features) {
+        int w = f.img.cols;
+        int h = f.img.rows;
+        avgWidth += w;
+        avgHeight += h;
+        minWidth = min(minWidth, w);
+        maxWidth = max(maxWidth, w);
+        minHeight = min(minHeight, h);
+        maxHeight = max(maxHeight, h);
+    }
+    avgWidth /= N;
+    avgHeight /= N;
+    
+    bool similarSizes = (maxWidth - minWidth) < avgWidth * 0.2 && 
+                        (maxHeight - minHeight) < avgHeight * 0.2;
+    
+    cout << "Piece sizes: avg=" << avgWidth << "x" << avgHeight 
+         << ", range=[" << minWidth << "-" << maxWidth << "]x[" 
+         << minHeight << "-" << maxHeight << "]" << endl;
+    cout << "Similar sizes: " << (similarSizes ? "YES" : "NO") << endl;
+    
+    // get all possible grid shapes (rows × cols = N), but exclude long strip shapes
+    vector<pair<int, int>> gridShapes;
+    const double MAX_ASPECT_RATIO = 2.0;  // max aspect ratio, if greater than this, it is a long strip
+    
+    for (int r = 1; r <= N; r++) {
+        if (N % r == 0) {
+            int c = N / r;
+            double aspectRatio = max((double)r / c, (double)c / r);
+            
+            // only keep shapes that are close to square (exclude long strips)
+            if (aspectRatio <= MAX_ASPECT_RATIO) {
+                gridShapes.push_back({r, c});
+            } else {
+                cout << "  Skipping long strip shape: " << r << "x" << c 
+                     << " (aspect ratio: " << aspectRatio << ")" << endl;
+            }
+        }
+    }
+    
+    if (gridShapes.empty()) {
+        cerr << "ERROR: No valid grid shapes found! All shapes are too long." << endl;
+        cerr << "Falling back to original method..." << endl;
+        vector<Pair> matches = createFilteredMatches(features, 0.9);
+        return buildLayout(matches, features, canvasW, canvasH);
+    }
+    
+    // sort by aspect ratio, try to find the closest square shape first
+    sort(gridShapes.begin(), gridShapes.end(), [](const pair<int, int>& a, const pair<int, int>& b) {
+        double ratioA = max((double)a.first / a.second, (double)a.second / a.first);
+        double ratioB = max((double)b.first / b.second, (double)b.second / b.first);
+        return ratioA < ratioB;
+    });
+    
+    cout << "Valid grid shapes (excluding long strips): ";
+    for (const auto& shape : gridShapes) {
+        double ratio = max((double)shape.first / shape.second, (double)shape.second / shape.first);
+        cout << shape.first << "x" << shape.second << "(ratio=" << fixed << setprecision(2) << ratio << ") ";
+    }
+    cout << endl;
+    
+    if (gridShapes.empty()) {
+        cerr << "ERROR: No valid grid shapes found after filtering!" << endl;
+        cerr << "All possible shapes are too long. Falling back to original method..." << endl;
+        vector<Pair> matches = createFilteredMatches(features, 0.9);
+        return buildLayout(matches, features, canvasW, canvasH);
+    }
+    
+    PuzzleLayout bestLayout;
+    double bestScore = numeric_limits<double>::max();
+    
+    for (const auto& shape : gridShapes) {
+        int rows = shape.first;
+        int cols = shape.second;
+        
+        cout << "\nTrying grid shape: " << rows << "x" << cols << endl;
+        
+        // try each piece as a seed (starting position (0,0))
+        for (int seedId = 0; seedId < N; seedId++) {
+            // try each rotation angle (0, 90, 180, 270)
+            for (int seedRotation = 0; seedRotation < 4; seedRotation++) {
+                // create grid
+                vector<vector<int>> grid(rows, vector<int>(cols, -1));
+                unordered_map<int, PiecePosition> positions;
+                unordered_set<int> usedPieces;
+                
+                if (cols <= 0 || rows <= 0) {
+                    cerr << "ERROR: Invalid grid size: " << rows << "x" << cols << endl;
+                    continue;
+                }
+                vector<float> colWidths(cols, 0);
+                vector<float> rowHeights(rows, 0);
+                vector<float> xOffsets(cols, 0);
+                vector<float> yOffsets(rows, 0);
+                
+                if (colWidths.size() != cols || rowHeights.size() != rows || 
+                    xOffsets.size() != cols || yOffsets.size() != rows) {
+                    cerr << "ERROR: Vector size mismatch!" << endl;
+                    continue;
+                }
+                
+                grid[0][0] = seedId;
+                usedPieces.insert(seedId);
+                cv::Size seedSize = features[seedId].img.size();
+                if (seedRotation == 1 || seedRotation == 3) {
+                    seedSize = cv::Size(seedSize.height, seedSize.width);
+                }
+                positions[seedId] = {cv::Point2f(0, 0), seedRotation * 90.0f, seedSize};
+                
+                colWidths[0] = seedSize.width;
+                rowHeights[0] = seedSize.height;
+                
+                bool valid = true;
+                double totalScore = 0.0;
+                int numEdges = 0;
+                
+                // raster scan fill
+                for (int r = 0; r < rows && valid; r++) {
+                    for (int c = 0; c < cols && valid; c++) {
+                        if (r == 0 && c == 0) continue;
+                        
+                        int leftNeighbor = (c > 0) ? grid[r][c-1] : -1;
+                        int topNeighbor = (r > 0) ? grid[r-1][c] : -1;
+                        
+                        if (leftNeighbor == -1 && topNeighbor == -1) {
+                            valid = false;
+                            break;
+                        }
+                        
+                        int bestPiece = -1;
+                        int bestRotation = 0;
+                        double bestScore = numeric_limits<double>::max();
+                        
+                        for (int pieceId = 0; pieceId < N; pieceId++) {
+                            if (usedPieces.count(pieceId)) continue;
+                            
+                            for (int rot = 0; rot < 4; rot++) {
+                                double score = 0.0;
+                                bool hasMatch = false;
+                                
+                                if (leftNeighbor >= 0) {
+                                    double matchScore = edgeDistanceFull(
+                                        features[leftNeighbor], features[pieceId],
+                                        1, 3 
+                                    );
+                                    score += matchScore;
+                                    hasMatch = true;
+                                    numEdges++;
+                                }
+
+                                if (topNeighbor >= 0) {
+                                    double matchScore = edgeDistanceFull(
+                                        features[topNeighbor], features[pieceId],
+                                        2, 0
+                                    );
+                                    score += matchScore;
+                                    hasMatch = true;
+                                    numEdges++;
+                                }
+                                
+                                if (hasMatch && score < bestScore) {
+                                    bestScore = score;
+                                    bestPiece = pieceId;
+                                    bestRotation = rot;
+                                }
+                            }
+                        }
+                        
+                        if (bestPiece == -1) {
+                            valid = false;
+                            break;
+                        }
+                        
+                        grid[r][c] = bestPiece;
+                        usedPieces.insert(bestPiece);
+                        
+                        cv::Size pieceSize = features[bestPiece].img.size();
+                        if (bestRotation == 1 || bestRotation == 3) {
+                            pieceSize = cv::Size(pieceSize.height, pieceSize.width);
+                        }
+                        
+                        if (c < 0 || c >= cols || r < 0 || r >= rows) {
+                            cerr << "ERROR: Grid index out of bounds! r=" << r << "/" << rows 
+                                 << ", c=" << c << "/" << cols << endl;
+                            valid = false;
+                            break;
+                        }
+                        
+                        if (colWidths.size() != cols || rowHeights.size() != rows || 
+                            xOffsets.size() != cols || yOffsets.size() != rows) {
+                            cerr << "ERROR: Vector size mismatch! cols=" << cols << ", rows=" << rows 
+                                 << ", colWidths=" << colWidths.size() << ", rowHeights=" << rowHeights.size() << endl;
+                            valid = false;
+                            break;
+                        }
+                        
+                        colWidths[c] = max(colWidths[c], (float)pieceSize.width);
+                        rowHeights[r] = max(rowHeights[r], (float)pieceSize.height);
+                        
+                        if (cols > 0 && xOffsets.size() == cols && colWidths.size() == cols) {
+                            for (int ci = 1; ci < cols; ci++) {
+                                if (ci < (int)xOffsets.size() && ci-1 < (int)colWidths.size() && ci-1 < (int)xOffsets.size()) {
+                                    xOffsets[ci] = xOffsets[ci-1] + colWidths[ci-1];
+                                }
+                            }
+                        }
+                        if (rows > 0 && yOffsets.size() == rows && rowHeights.size() == rows) {
+                            for (int ri = 1; ri < rows; ri++) {
+                                if (ri < (int)yOffsets.size() && ri-1 < (int)rowHeights.size() && ri-1 < (int)yOffsets.size()) {
+                                    yOffsets[ri] = yOffsets[ri-1] + rowHeights[ri-1];
+                                }
+                            }
+                        }
+                        
+                        for (int ri = 0; ri < rows; ri++) {
+                            for (int ci = 0; ci < cols; ci++) {
+                                if (grid[ri][ci] >= 0 && (ri < r || (ri == r && ci < c))) {
+                                    int pid = grid[ri][ci];
+                                    if (ci < (int)xOffsets.size() && ri < (int)yOffsets.size()) {
+                                        positions[pid].position.x = xOffsets[ci];
+                                        positions[pid].position.y = yOffsets[ri];
+                                    }
+                                }
+                            }
+                        }
+
+                        if (c >= (int)xOffsets.size() || r >= (int)yOffsets.size()) {
+                            cerr << "ERROR: Final offset access out of bounds! c=" << c 
+                                 << "/" << xOffsets.size() << ", r=" << r << "/" << yOffsets.size() << endl;
+                            valid = false;
+                            break;
+                        }
+                        cv::Point2f pos(xOffsets[c], yOffsets[r]);
+                        
+                        positions[bestPiece] = {pos, bestRotation * 90.0f, pieceSize};
+                        totalScore += bestScore;
+                    }
+                }
+                
+                // if all positions are filled, calculate average score and check global consistency
+                if (valid && usedPieces.size() == N) {
+                    double avgScore = (numEdges > 0) ? totalScore / numEdges : totalScore;
+                    
+                    if (avgScore < bestScore) {
+                        bestScore = avgScore;
+                        bestLayout.grid = grid;
+                        bestLayout.positions = positions;
+                        bestLayout.rows = rows;
+                        bestLayout.cols = cols;
+                        bestLayout.bounds = findTotalArea(positions);
+                        
+                        cout << "  Found better solution: seed=" << seedId 
+                             << ", rotation=" << seedRotation * 90
+                             << ", avgScore=" << avgScore << endl;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (bestLayout.positions.empty()) {
+        cout << "WARNING: Raster scan failed, falling back to original method" << endl;
+        // fall back to original method
+        vector<Pair> matches = createFilteredMatches(features, 0.9);
+        return buildLayout(matches, features, canvasW, canvasH);
+    }
+    
+    cout << "\nBest solution found with avgScore=" << bestScore << endl;
+    cout << "Grid size: " << bestLayout.rows << "x" << bestLayout.cols << endl;
+    
+    return bestLayout;
 }
 
 }

@@ -11,7 +11,6 @@ set(SOURCES
     src/Features/FeatureExtractor.cpp
     src/Matching/PieceMatcher.cpp
     src/Puzzle/Assembler.cpp
-    src/Matching/PieceMatcher_translate.cpp
 )
 
 # OpenCV

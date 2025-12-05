@@ -26,10 +26,10 @@ struct Pair {
 };
 
 
-namespace Matcher {
+namespace PieceMatcher {
     std::vector<Pair> createFilteredMatches(const std::vector<PieceFeature>& features, double ratioTestThreshold);
     PuzzleLayout buildLayout(const std::vector<Pair>& matches, const std::vector<PieceFeature>& f, int canvasW, int canvasH);
     cv::Mat rotatePiece(const cv::Mat& img, float rotation);
-
+    PuzzleLayout buildLayoutRasterScan(const std::vector<PieceFeature>& features, int canvasW, int canvasH);
 
 }

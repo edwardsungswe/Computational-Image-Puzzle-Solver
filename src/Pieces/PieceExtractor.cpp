@@ -1,8 +1,27 @@
 #include "PieceExtractor.h"
 #include <iostream>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
 using namespace std;
-std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool enableRotation = false) {
+using namespace cv;
+
+std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool enableRotation, 
+                                                    const std::string& outputDir) {
     std::vector<cv::Mat> pieces;
+
+    // if outputDir is not empty, create directory. Debug 
+    bool savePieces = !outputDir.empty();
+    // if (savePieces) {
+    //     try {
+    //         std::filesystem::create_directories(outputDir);
+    //         std::cout << "Saving extracted pieces to: " << outputDir << std::endl;
+    //     } catch (const std::exception& e) {
+    //         std::cerr << "Warning: Failed to create output directory '" << outputDir 
+    //                   << "': " << e.what() << std::endl;
+    //         savePieces = false;
+    //     }
+    // }
 
     // Convert RGB → Gray
     cv::Mat gray;
@@ -17,6 +36,7 @@ std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool
     cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
     // For each contour, extract rotated piece
+    int pieceIndex = 0;
     for (const auto& c : contours) {
         if (!enableRotation) {
             cv::Rect box = cv::boundingRect(c);
@@ -26,7 +46,21 @@ std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool
             box.height = min(rgbImage.rows - box.y, box.height);
             if (box.width <= 0 || box.height <= 0)
                 continue;
-            pieces.push_back(rgbImage(box).clone());
+            cv::Mat piece = rgbImage(box).clone();
+            pieces.push_back(piece);
+            
+            // //Debug: save pieces to directory
+            // if (savePieces) {
+            //     std::filesystem::path filePath = std::filesystem::path(outputDir);
+            //     std::ostringstream filename;
+            //     filename << "piece_" << std::setfill('0') << std::setw(4) 
+            //              << pieceIndex << ".png";
+            //     filePath /= filename.str();
+            //     cv::imwrite(filePath.string(), piece);
+            //     std::cout << "Saved: " << filePath.string() 
+            //               << " (size: " << piece.cols << "x" << piece.rows << ")" << std::endl;
+            // }
+            pieceIndex++;
             continue;
 
         } else {
@@ -60,10 +94,28 @@ std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool
             if (roi.width <= 0 || roi.height <= 0)
                 continue;
 
-
-            pieces.push_back(rotated(roi).clone());
+            cv::Mat piece = rotated(roi).clone();
+            pieces.push_back(piece);
+            
+            // Debug: save pieces to directory
+            // if (savePieces) {
+            //     std::filesystem::path filePath = std::filesystem::path(outputDir);
+            //     std::ostringstream filename;
+            //     filename << "piece_" << std::setfill('0') << std::setw(4) 
+            //              << pieceIndex << ".png";
+            //     filePath /= filename.str();
+            //     cv::imwrite(filePath.string(), piece);
+            //     std::cout << "Saved: " << filePath.string() 
+            //               << " (size: " << piece.cols << "x" << piece.rows << ")" << std::endl;
+            // }
+            pieceIndex++;
         }
     }
+    
+    if (savePieces) {
+        std::cout << "Total pieces extracted and saved: " << pieces.size() << std::endl;
+    }
+    
     return pieces;
 }
 
