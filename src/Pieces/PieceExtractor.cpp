@@ -1,7 +1,7 @@
 #include "PieceExtractor.h"
 #include <iostream>
-
-std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage) {
+using namespace std;
+std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool enableRotation = false) {
     std::vector<cv::Mat> pieces;
 
     // Convert RGB → Gray
@@ -18,40 +18,52 @@ std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage) {
 
     // For each contour, extract rotated piece
     for (const auto& c : contours) {
-        cv::RotatedRect box = cv::minAreaRect(c);
-
-        float angle = box.angle;
-        cv::Size2f boxSize = box.size;
-
-        if (box.angle < -45.0f) {
-            angle += 90.0f;
-            std::swap(boxSize.width, boxSize.height);
-        }
-
-        cv::Mat M = cv::getRotationMatrix2D(box.center, angle, 1.0);
-
-        cv::Mat rotated;
-        cv::warpAffine(rgbImage, rotated, M, rgbImage.size(),
-                       cv::INTER_CUBIC, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
-
-        cv::Rect roi;
-        roi.width  = static_cast<int>(boxSize.width);
-        roi.height = static_cast<int>(boxSize.height);
-        roi.x = static_cast<int>(box.center.x - roi.width / 2.0f);
-        roi.y = static_cast<int>(box.center.y - roi.height / 2.0f);
-
-        // Clamp ROI
-        roi.x = std::max(0, std::min(roi.x, rotated.cols - 1));
-        roi.y = std::max(0, std::min(roi.y, rotated.rows - 1));
-        if (roi.x + roi.width > rotated.cols)  roi.width  = rotated.cols - roi.x;
-        if (roi.y + roi.height > rotated.rows) roi.height = rotated.rows - roi.y;
-
-        if (roi.width <= 0 || roi.height <= 0)
+        if (!enableRotation) {
+            cv::Rect box = cv::boundingRect(c);
+            box.x = max(0, box.x);
+            box.y = max(0, box.y);
+            box.width = min(rgbImage.cols - box.x, box.width);
+            box.height = min(rgbImage.rows - box.y, box.height);
+            if (box.width <= 0 || box.height <= 0)
+                continue;
+            pieces.push_back(rgbImage(box).clone());
             continue;
 
-        pieces.push_back(rotated(roi).clone());
-    }
+        } else {
+            cv::RotatedRect box = cv::minAreaRect(c);
+            float angle = box.angle;
+            cv::Size2f boxSize = box.size;
 
+            if (box.angle < -45.0f) {
+                angle += 90.0f;
+                std::swap(boxSize.width, boxSize.height);
+            }
+
+            cv::Mat M = cv::getRotationMatrix2D(box.center, angle, 1.0);
+
+            cv::Mat rotated;
+            cv::warpAffine(rgbImage, rotated, M, rgbImage.size(),
+                        cv::INTER_CUBIC, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
+
+            cv::Rect roi;
+            roi.width  = static_cast<int>(boxSize.width);
+            roi.height = static_cast<int>(boxSize.height);
+            roi.x = static_cast<int>(box.center.x - roi.width / 2.0f);
+            roi.y = static_cast<int>(box.center.y - roi.height / 2.0f);
+
+            // Clamp ROI
+            roi.x = std::max(0, std::min(roi.x, rotated.cols - 1));
+            roi.y = std::max(0, std::min(roi.y, rotated.rows - 1));
+            if (roi.x + roi.width > rotated.cols)  roi.width  = rotated.cols - roi.x;
+            if (roi.y + roi.height > rotated.rows) roi.height = rotated.rows - roi.y;
+
+            if (roi.width <= 0 || roi.height <= 0)
+                continue;
+
+
+            pieces.push_back(rotated(roi).clone());
+        }
+    }
     return pieces;
 }
 

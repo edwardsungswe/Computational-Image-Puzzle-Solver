@@ -458,7 +458,7 @@ PuzzleLayout buildLayout(const vector<Pair>& matches, const vector<PieceFeature>
     const int margin = 50;
     int newGroupXCoordinate = 0;
 
-    // cout << "=== STARTING LAYOUT BUILDING ===" << endl;
+    cout << "=== STARTING LAYOUT BUILDING ===" << endl;
     // cout << "Total pieces: " << N << ", Total matches: " << matches.size() << endl;
 
     auto moveGroup = [&](int group, const cv::Point2f& offset) {
