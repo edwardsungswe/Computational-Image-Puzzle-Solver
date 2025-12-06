@@ -119,6 +119,99 @@ std::vector<cv::Mat> PieceExtractor::extractPieces(const cv::Mat& rgbImage, bool
     return pieces;
 }
 
+std::vector<PieceInfo> PieceExtractor::extractPiecesWithInfo(const cv::Mat& rgbImage, bool enableRotation, 
+                                                              const std::string& outputDir) {
+    std::vector<PieceInfo> pieces;
+
+    bool savePieces = !outputDir.empty();
+
+    // Convert RGB → Gray
+    cv::Mat gray;
+    cv::cvtColor(rgbImage, gray, cv::COLOR_RGB2GRAY);
+
+    // Threshold
+    cv::Mat mask;
+    cv::threshold(gray, mask, 10, 255, cv::THRESH_BINARY);
+
+    // Find contours
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+    // For each contour, extract piece with position info
+    int pieceIndex = 0;
+    for (const auto& c : contours) {
+        if (!enableRotation) {
+            cv::Rect box = cv::boundingRect(c);
+            box.x = max(0, box.x);
+            box.y = max(0, box.y);
+            box.width = min(rgbImage.cols - box.x, box.width);
+            box.height = min(rgbImage.rows - box.y, box.height);
+            if (box.width <= 0 || box.height <= 0)
+                continue;
+            
+            cv::Mat piece = rgbImage(box).clone();
+            
+            PieceInfo info;
+            info.img = piece;
+            info.center = cv::Point2f(box.x + box.width / 2.0f, box.y + box.height / 2.0f);
+            info.originalRotation = 0.0f;
+            info.originalSize = cv::Size(box.width, box.height);
+            
+            pieces.push_back(info);
+            pieceIndex++;
+            continue;
+
+        } else {
+            cv::RotatedRect box = cv::minAreaRect(c);
+            float angle = box.angle;
+            cv::Size2f boxSize = box.size;
+
+            if (box.angle < -45.0f) {
+                angle += 90.0f;
+                std::swap(boxSize.width, boxSize.height);
+            }
+
+            cv::Mat M = cv::getRotationMatrix2D(box.center, angle, 1.0);
+
+            cv::Mat rotated;
+            cv::warpAffine(rgbImage, rotated, M, rgbImage.size(),
+                        cv::INTER_CUBIC, cv::BORDER_CONSTANT, cv::Scalar(0,0,0));
+
+            cv::Rect roi;
+            roi.width  = static_cast<int>(boxSize.width);
+            roi.height = static_cast<int>(boxSize.height);
+            roi.x = static_cast<int>(box.center.x - roi.width / 2.0f);
+            roi.y = static_cast<int>(box.center.y - roi.height / 2.0f);
+
+            // Clamp ROI
+            roi.x = std::max(0, std::min(roi.x, rotated.cols - 1));
+            roi.y = std::max(0, std::min(roi.y, rotated.rows - 1));
+            if (roi.x + roi.width > rotated.cols)  roi.width  = rotated.cols - roi.x;
+            if (roi.y + roi.height > rotated.rows) roi.height = rotated.rows - roi.y;
+
+            if (roi.width <= 0 || roi.height <= 0)
+                continue;
+
+            cv::Mat piece = rotated(roi).clone();
+            
+            PieceInfo info;
+            info.img = piece;
+            info.center = box.center;
+            info.originalRotation = angle;
+            info.originalSize = cv::Size(static_cast<int>(boxSize.width), static_cast<int>(boxSize.height));
+            
+            pieces.push_back(info);
+            pieceIndex++;
+        }
+    }
+    
+    if (savePieces) {
+        std::cout << "Total pieces extracted with info: " << pieces.size() << std::endl;
+    }
+    
+    return pieces;
+}
+
 cv::Mat PieceExtractor::drawContoursOnImage(const cv::Mat& rgbImage) {
     cv::Mat gray;
     cv::cvtColor(rgbImage, gray, cv::COLOR_RGB2GRAY);

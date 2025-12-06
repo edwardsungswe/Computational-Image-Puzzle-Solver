@@ -75,6 +75,9 @@ int main(int argc, char* argv[]) {
     // Debug: extract pieces and save to file
     string outputDir = "./extracted_pieces";
     vector<Mat> pieces = PieceExtractor::extractPieces(bgrImage, false, outputDir);
+    
+    // Also extract pieces with position info for animation
+    vector<PieceInfo> pieceInfos = PieceExtractor::extractPiecesWithInfo(bgrImage, false, outputDir);
 
     cout << "Detected " << pieces.size() << " pieces." << endl;
 
@@ -238,56 +241,57 @@ int main(int argc, char* argv[]) {
     
     cout << "Pieces drawn: " << piecesDrawn << "/" << layout.positions.size() << endl;
 
-    putText(finalAssembly, "Final Matched Layout", 
-            Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(255,255,255), 2);
-    putText(finalAssembly, "Pieces: " + to_string(piecesDrawn) + "/" + to_string(features.size()), 
-            Point(20, 80), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255,255,255), 2);
-    putText(finalAssembly, "Press any key to exit...", 
-            Point(20, canvasH - 20), FONT_HERSHEY_SIMPLEX, 0.7, Scalar(200,200,200), 2);
-
-    cout << "\nDisplaying final layout. Press any key in the window to continue..." << endl;
-    imshow("Final Layout", finalAssembly);
-    waitKey(0);
-    destroyWindow("Final Layout");
+    // Prepare initial positions and rotations from the scrambled image
+    vector<Point2f> initialPositions;
+    vector<float> initialRotations;
     
+    for (const auto& info : pieceInfos) {
+        initialPositions.push_back(info.center);
+        initialRotations.push_back(info.originalRotation);
+    }
+
+    // Configure and run animation
+    PuzzleAnimator::AnimationConfig animConfig;
+    animConfig.totalFrames = 180;     // 6 seconds at 30 FPS
+    animConfig.fps = 30;
+    animConfig.showWindow = true;
+    animConfig.saveFrames = false;    // Set to true to save frames to disk
+
+    cout << "\nStarting puzzle assembly animation from initial positions..." << endl;
+    cout << "Initial positions: " << initialPositions.size() << " pieces" << endl;
+    
+    // Use the 5-parameter version that accepts initial positions
+    PuzzleAnimator::animatePuzzleAssembly(features, layout, canvasW, canvasH, 
+                                          initialPositions, initialRotations, animConfig);
+
+    // Display final assembled puzzle and wait for keypress
+    Mat finalPuzzle(canvasH, canvasW, CV_8UC3, Scalar(0, 0, 0));
+
+    for (auto& entry : layout.positions) {
+        int pieceId = entry.first;
+        const PiecePosition& pos = entry.second;
+        const Mat& piece = features[pieceId].img;
+        Mat pieceToDraw = PieceMatcher::rotatePiece(piece, pos.rotation);
+
+        int screenX = static_cast<int>(pos.position.x - minX + 50);
+        int screenY = static_cast<int>(pos.position.y - minY + 50);
+
+        if (screenX >= 0 && screenY >= 0 &&
+            screenX + pieceToDraw.cols <= canvasW &&
+            screenY + pieceToDraw.rows <= canvasH) {
+            pieceToDraw.copyTo(finalPuzzle(Rect(screenX, screenY, pieceToDraw.cols, pieceToDraw.rows)));
+        }
+    }
+
+    putText(finalPuzzle, "Animation Complete!", 
+            Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0, 255, 0), 2);
+    putText(finalPuzzle, "Press any key to exit...", 
+            Point(20, canvasH - 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200, 200, 200), 2);
+
+    imshow("Final Puzzle", finalPuzzle);
+    waitKey(0);
+    destroyWindow("Final Puzzle");
+
     cout << "Program completed successfully!" << endl;
-    // // Configure and run animation
-    // PuzzleAnimator::AnimationConfig animConfig;
-    // animConfig.totalFrames = 180;     // 6 seconds at 30 FPS
-    // animConfig.fps = 30;
-    // animConfig.showWindow = true;
-    // animConfig.saveFrames = false;    // Set to true to save frames to disk
-
-    // PuzzleAnimator::animatePuzzleAssembly(features, layout, canvasW, canvasH, 
-    //                                       pieceInitialPositions, pieceInitialRotations, animConfig);
-
-    // // Display final assembled puzzle and wait for keypress
-    // Mat finalPuzzle(canvasH, canvasW, CV_8UC3, Scalar(0, 0, 0));
-
-    // for (auto& entry : layout.positions) {
-    //     int pieceId = entry.first;
-    //     const PiecePosition& pos = entry.second;
-    //     const Mat& piece = features[pieceId].img;
-    //     Mat pieceToDraw = PieceMatcher::rotatePiece(piece, pos.rotation);
-
-    //     int screenX = static_cast<int>(pos.position.x - minX + 50);
-    //     int screenY = static_cast<int>(pos.position.y - minY + 50);
-
-    //     if (screenX >= 0 && screenY >= 0 &&
-    //         screenX + piece.cols <= canvasW &&
-    //         screenY + piece.rows <= canvasH) {
-    //         pieceToDraw.copyTo(finalPuzzle(Rect(screenX, screenY, piece.cols, piece.rows)));
-    //     }
-    // }
-
-    // putText(finalPuzzle, "Animation Complete!", 
-    //         Point(20, 40), FONT_HERSHEY_SIMPLEX, 1.0, Scalar(0, 255, 0), 2);
-    // putText(finalPuzzle, "Press any key to exit...", 
-    //         Point(20, canvasH - 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200, 200, 200), 2);
-
-    // imshow("Final Puzzle", finalPuzzle);
-    // waitKey(0);
-    // destroyWindow("Final Puzzle");
-
-    // return 0;
+    return 0;
 }
