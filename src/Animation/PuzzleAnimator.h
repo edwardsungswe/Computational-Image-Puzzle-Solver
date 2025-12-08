@@ -7,24 +7,18 @@
 
 namespace PuzzleAnimator {
 
-    
-    //Represents the state of a piece during animation
-    
     struct AnimationFrame {
-        cv::Point2f position;      // Current position
-        float rotation;             // Current rotation angle in degrees
-        float scale;                // Current scale factor
+        cv::Point2f position;
+        float rotation;
+        float scale;
     };
 
-    
-    //Configuration for animation playback
-    
     struct AnimationConfig {
-        int totalFrames = 120;      // Total frames (at 30fps = 4 seconds)
-        int fps = 30;               // Frames per second
-        bool saveFrames = false;    // Whether to save frames to disk
+        int totalFrames = 120;
+        int fps = 30;
+        bool saveFrames = false;
         std::string outputDir = "./animation_frames/";
-        bool showWindow = true;     // Whether to display animation in window
+        bool showWindow = true;
     };
 
     void animatePuzzleAssembly(

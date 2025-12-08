@@ -1,20 +1,13 @@
 #pragma once
-#include <vector>
+
 #include <opencv2/opencv.hpp>
+#include <vector>
 #include "../Features/FeatureExtractor.h"
 #include "../Matching/PieceMatcher.h"
 
 namespace Assembler {
-
-    cv::Mat assembleImage(const PuzzleLayout& layout,
-                          const std::vector<PieceFeature>& features,
-                          int canvasW,
-                          int canvasH);
-
-    std::vector<cv::Point> computePiecePositions(
-        const PuzzleLayout& layout,
-        const std::vector<PieceFeature>& features,
-        int canvasW,
-        int canvasH
-    );
+    cv::Mat assemble(const std::vector<PieceFeature>& features, const PuzzleLayout& layout);
+    cv::Mat assemble(const std::vector<PieceFeature>& features, const PuzzleLayout& layout,
+                     int outputWidth, int outputHeight);
+    cv::Mat assembleWithDebug(const std::vector<PieceFeature>& features, const PuzzleLayout& layout);
 }

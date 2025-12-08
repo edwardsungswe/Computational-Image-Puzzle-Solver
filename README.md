@@ -8,7 +8,7 @@ cmake -B .\build\
 
 Then build the program
 
-cmake --build build\
+cmake --build .build\
 
 Then run and execute
 

@@ -3,21 +3,18 @@
 #include <vector>
 
 struct EdgeFeature {
-    // rgb histogram
-    // [R_bin0, R_bin1, ..., R_bin7, G_bin0, G_bin1, ..., G_bin7, B_bin0, B_bin1, ..., B_bin7]
-    std::vector<double> histogram;
-    
-    // backward compatibility: keep old sampling point way
-    std::vector<double> vals;  // luminance value
-    std::vector<cv::Vec3d> rgbVals;  // RGB three channels value
+    std::vector<cv::Vec3b> boundaryPixels;  // Actual pixels along the edge
+    std::vector<double> gradients;           // Gradient values along edge
+    int length;                              // Edge length in pixels
 };
 
 struct PieceFeature {
     cv::Mat img;
     EdgeFeature top, right, bottom, left;
+    cv::Size size;
 };
-
 
 namespace FeatureExtractor {
     PieceFeature extract(const cv::Mat& piece);
+    EdgeFeature extractEdge(const cv::Mat& img, int edge);
 }
