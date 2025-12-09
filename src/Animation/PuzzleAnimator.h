@@ -4,6 +4,7 @@
 #include <vector>
 #include "../Features/FeatureExtractor.h"
 #include "../Matching/PieceMatcher.h"
+#include "../Pieces/PieceExtractor.h"
 
 namespace PuzzleAnimator {
 
@@ -20,6 +21,23 @@ namespace PuzzleAnimator {
         std::string outputDir = "./animation_frames/";
         bool showWindow = true;
     };
+    
+    void animateSolvingProcess(
+        const std::vector<PieceFeature>& features,
+        const std::vector<SolvingStep>& steps,
+        int canvasW,
+        int canvasH,
+        const AnimationConfig& config = AnimationConfig()
+    );
+
+    void animatePuzzleAssembly(
+        const std::vector<PieceFeature>& features,
+        const PuzzleLayout& layout,
+        const std::vector<PieceInfo>& pieceInfos,
+        int canvasW,
+        int canvasH,
+        const AnimationConfig& config = AnimationConfig()
+    );
 
     void animatePuzzleAssembly(
         const std::vector<PieceFeature>& features,
@@ -45,6 +63,17 @@ namespace PuzzleAnimator {
         float startRot,
         float endRot,
         float t
+    );
+
+    void showCompleteProcess(
+        const cv::Mat& originalImage,
+        const std::vector<PieceInfo>& pieceInfos,
+        const std::vector<PieceFeature>& features,
+        const std::vector<SolvingStep>& solvingSteps,
+        const PuzzleLayout& layout,
+        int canvasW,
+        int canvasH,
+        const AnimationConfig& config = AnimationConfig()
     );
 
 }

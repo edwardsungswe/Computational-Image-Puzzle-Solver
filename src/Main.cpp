@@ -6,6 +6,7 @@
 #include "Matching/PieceMatcher.h"
 #include "ImageIO/ImageLoader.h"
 #include "Pieces/PieceExtractor.h"
+#include "Animation/PuzzleAnimator.h"
 
 using namespace std;
 using namespace cv;
@@ -37,14 +38,16 @@ int main(int argc, char* argv[]) {
     cvtColor(rgbImage, bgrImage, COLOR_RGB2BGR);
 
     string outputDir = "./extracted_pieces";
-    vector<Mat> pieces = PieceExtractor::extractPieces(bgrImage, outputDir);
-
+    
+    vector<PieceInfo> pieceInfos = PieceExtractor::extractPiecesWithInfo(bgrImage, outputDir);
+    
     vector<PieceFeature> features;
-    for (const auto& p : pieces) {
-        features.push_back(FeatureExtractor::extract(p));
+    for (const auto& info : pieceInfos) {
+        features.push_back(FeatureExtractor::extract(info.img));
     }
 
-    PuzzleLayout layout = PieceMatcher::solve(features, width, height);
+    vector<SolvingStep> solvingSteps;
+    PuzzleLayout layout = PieceMatcher::solveWithSteps(features, width, height, solvingSteps);
 
     if (layout.positions.empty()) {
         cerr << "Solver failed" << endl;
@@ -94,8 +97,24 @@ int main(int argc, char* argv[]) {
     }
 
     imwrite("output.png", finalPuzzle);
-    imshow("Solved Puzzle", finalPuzzle);
-    waitKey(0);
+    
+    PuzzleAnimator::AnimationConfig animConfig;
+    animConfig.totalFrames = 180;
+    animConfig.fps = 30;
+    animConfig.showWindow = true;
+    animConfig.saveFrames = false;
+    animConfig.outputDir = "./animation_frames/";
+    
+    PuzzleAnimator::showCompleteProcess(
+        bgrImage,
+        pieceInfos,
+        features,         
+        solvingSteps,      
+        layout,     
+        width, height,
+        animConfig
+    );
+    
     destroyAllWindows();
 
     free(buffer);

@@ -362,8 +362,7 @@ void buildMGCCache(const vector<PieceFeature>& features,
     }
 }
 
-// Beam search
-
+    
 struct SearchState {
     vector<vector<int>> grid;
     vector<int> rotations;
@@ -408,7 +407,6 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
 
     priority_queue<SearchState> beam;
     
-    // Seed with each piece at 0° rotation
     for (int seed = 0; seed < N; seed++) {
         SearchState state;
         state.grid.assign(rows, vector<int>(cols, -1));
@@ -502,7 +500,6 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
         return emptyLayout;
     }
 
-    // Build result
     PuzzleLayout result;
     result.rows = rows;
     result.cols = cols;
@@ -512,7 +509,7 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
     for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
             int piece = bestComplete.grid[r][c];
-            Size sz = features[piece].img.size();  // No rotation needed for size
+            Size sz = features[piece].img.size();
             allWidths.push_back(sz.width);
             allHeights.push_back(sz.height);
         }
@@ -525,11 +522,9 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
     vector<float> rowHeights(rows, medianH);
     vector<float> colWidths(cols, medianW);
 
-    // Calculate actual cumulative positions based on piece sizes
     vector<float> yOff(rows + 1, 0);
     vector<float> xOff(cols + 1, 0);
 
-    // Build cumulative offsets from actual piece sizes
     for (int r = 0; r < rows; r++) {
         float maxHeight = 0;
         for (int c = 0; c < cols; c++) {
@@ -556,7 +551,6 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
             int piece = bestComplete.grid[r][c];
             int rot = bestComplete.rotations[piece];
             
-            // ✅ ADD THESE LINES INSTEAD
             Size cellSize(
                 static_cast<int>(xOff[c + 1] - xOff[c]),
                 static_cast<int>(yOff[r + 1] - yOff[r])
@@ -565,14 +559,13 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
             result.positions[piece] = {
                 Point2f(xOff[c], yOff[r]),
                 rot * 90.0f,
-                cellSize  // ✅ CHANGE FROM 'sz' to 'cellSize'
+                cellSize
             };
         }
     }
 
     result.bounds = Rect2f(0, 0, xOff[cols], yOff[rows]);
 
-    // 🔍 DEBUG OUTPUT
     cout << "\n=== GRID DEBUG ===" << endl;
     cout << "Column offsets: ";
     for (int c = 0; c <= cols; c++) cout << xOff[c] << " ";
@@ -608,6 +601,228 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
         cout << endl;
     }
     cout << "Total MGC score: " << bestComplete.score << endl;
+
+    return result;
+}
+
+PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, int canvasH,
+                            vector<SolvingStep>& steps) {
+    int N = static_cast<int>(features.size());
+    PuzzleLayout emptyLayout;
+    steps.clear();
+    
+    if (N == 0) return emptyLayout;
+
+    cout << "\n=== MGC PUZZLE SOLVER (with steps) ===" << endl;
+    cout << "Pieces: " << N << endl;
+
+    auto gridShape = inferGridShape(features, N, canvasW, canvasH);
+    int rows = gridShape.first;
+    int cols = gridShape.second;
+    cout << "Grid: " << rows << "x" << cols << endl;
+
+    cout << "Building MGC edge caches..." << endl;
+    EdgeCache hCache, vCache;
+    buildMGCCache(features, hCache, vCache);
+
+    const int BEAM_WIDTH = 5000;
+    cout << "Beam search (width=" << BEAM_WIDTH << ")..." << endl;
+
+    priority_queue<SearchState> beam;
+    
+    for (int seed = 0; seed < N; seed++) {
+        SearchState state;
+        state.grid.assign(rows, vector<int>(cols, -1));
+        state.rotations.assign(N, 0);
+        state.used.assign(N, false);
+        state.grid[0][0] = seed;
+        state.rotations[seed] = 0;
+        state.used[seed] = true;
+        state.score = 0.0;
+        state.filledCount = 1;
+        beam.push(state);
+    }
+
+    vector<SearchState> currentBeam;
+    while (!beam.empty() && currentBeam.size() < BEAM_WIDTH) {
+        currentBeam.push_back(beam.top());
+        beam.pop();
+    }
+
+    if (!currentBeam.empty()) {
+        SolvingStep initialStep;
+        initialStep.grid = currentBeam[0].grid;
+        for (int i = 0; i < N; i++) {
+            initialStep.rotations[i] = currentBeam[0].rotations[i];
+        }
+        initialStep.stepNumber = 0;
+        initialStep.filledCount = currentBeam[0].filledCount;
+        initialStep.score = currentBeam[0].score;
+        steps.push_back(initialStep);
+    }
+
+    SearchState bestComplete;
+    bestComplete.filledCount = 0;
+    bestComplete.score = 1e9;
+
+    for (int step = 1; step < N; step++) {
+        int nextRow = step / cols;
+        int nextCol = step % cols;
+        
+        if (step % 5 == 0) {
+            cout << "  Step " << step << "/" << N 
+                 << ", beam size: " << currentBeam.size() 
+                 << ", best score: " << currentBeam[0].score << endl;
+        }
+
+        priority_queue<SearchState> nextBeam;
+
+        for (const auto& state : currentBeam) {
+            for (int pid = 0; pid < N; pid++) {
+                if (state.used[pid]) continue;
+
+                for (int rot = 0; rot < 4; rot++) {
+                    double score = 0.0;
+                    bool valid = true;
+                    
+                    if (nextCol > 0) {
+                        int leftPiece = state.grid[nextRow][nextCol - 1];
+                        int leftRot = state.rotations[leftPiece];
+                        double h = hCache[leftPiece][pid][leftRot][rot];
+                        if (h >= 1e8) { valid = false; }
+                        else score += h;
+                    }
+                    
+                    if (valid && nextRow > 0) {
+                        int topPiece = state.grid[nextRow - 1][nextCol];
+                        int topRot = state.rotations[topPiece];
+                        double v = vCache[topPiece][pid][topRot][rot];
+                        if (v >= 1e8) { valid = false; }
+                        else score += v;
+                    }
+                    
+                    if (!valid) continue;
+
+                    SearchState newState = state;
+                    newState.grid[nextRow][nextCol] = pid;
+                    newState.rotations[pid] = rot;
+                    newState.used[pid] = true;
+                    newState.score = state.score + score;
+                    newState.filledCount = step + 1;
+                    nextBeam.push(newState);
+                }
+            }
+        }
+
+        currentBeam.clear();
+        while (!nextBeam.empty() && currentBeam.size() < BEAM_WIDTH) {
+            currentBeam.push_back(nextBeam.top());
+            nextBeam.pop();
+        }
+
+        if (currentBeam.empty()) {
+            cout << "  Beam died at step " << step << endl;
+            break;
+        }
+
+        if (!currentBeam.empty()) {
+            SolvingStep stepInfo;
+            stepInfo.grid = currentBeam[0].grid;
+            for (int i = 0; i < N; i++) {
+                stepInfo.rotations[i] = currentBeam[0].rotations[i];
+            }
+            stepInfo.stepNumber = step;
+            stepInfo.filledCount = currentBeam[0].filledCount;
+            stepInfo.score = currentBeam[0].score;
+            steps.push_back(stepInfo);
+        }
+
+        if (step == N - 1 && currentBeam[0].score < bestComplete.score) {
+            bestComplete = currentBeam[0];
+        }
+    }
+
+    if (bestComplete.filledCount != N) {
+        cerr << "No complete solution found" << endl;
+        return emptyLayout;
+    }
+
+    PuzzleLayout result;
+    result.rows = rows;
+    result.cols = cols;
+    result.grid = bestComplete.grid;
+
+    vector<int> allWidths, allHeights;
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            int piece = bestComplete.grid[r][c];
+            Size sz = features[piece].img.size();
+            allWidths.push_back(sz.width);
+            allHeights.push_back(sz.height);
+        }
+    }
+    sort(allWidths.begin(), allWidths.end());
+    sort(allHeights.begin(), allHeights.end());
+    float medianW = allWidths[allWidths.size()/2];
+    float medianH = allHeights[allHeights.size()/2];
+
+    vector<float> rowHeights(rows, medianH);
+    vector<float> colWidths(cols, medianW);
+
+    vector<float> yOff(rows + 1, 0);
+    vector<float> xOff(cols + 1, 0);
+
+    for (int r = 0; r < rows; r++) {
+        float maxHeight = 0;
+        for (int c = 0; c < cols; c++) {
+            int piece = bestComplete.grid[r][c];
+            Size sz = features[piece].img.size();
+            maxHeight = max(maxHeight, (float)sz.height);
+        }
+        yOff[r + 1] = yOff[r] + maxHeight - 1;
+    }
+
+    for (int c = 0; c < cols; c++) {
+        float maxWidth = 0;
+        for (int r = 0; r < rows; r++) {
+            int piece = bestComplete.grid[r][c];
+            Size sz = features[piece].img.size();
+            maxWidth = max(maxWidth, (float)sz.width);
+        }
+        xOff[c + 1] = xOff[c] + maxWidth - 1;
+    }
+
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            int piece = bestComplete.grid[r][c];
+            int rot = bestComplete.rotations[piece];
+            
+            Size cellSize(
+                static_cast<int>(xOff[c + 1] - xOff[c]),
+                static_cast<int>(yOff[r + 1] - yOff[r])
+            );
+            
+            result.positions[piece] = {
+                Point2f(xOff[c], yOff[r]),
+                rot * 90.0f,
+                cellSize
+            };
+        }
+    }
+
+    result.bounds = Rect2f(0, 0, xOff[cols], yOff[rows]);
+
+    cout << "\n=== SOLUTION ===" << endl;
+    for (int r = 0; r < rows; r++) {
+        cout << "  ";
+        for (int c = 0; c < cols; c++) {
+            int p = bestComplete.grid[r][c];
+            cout << p << "(" << bestComplete.rotations[p]*90 << ") ";
+        }
+        cout << endl;
+    }
+    cout << "Total MGC score: " << bestComplete.score << endl;
+    cout << "Recorded " << steps.size() << " solving steps" << endl;
 
     return result;
 }

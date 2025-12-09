@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include <opencv2/opencv.hpp>
 #include "../Features/FeatureExtractor.h"
 
@@ -18,7 +19,17 @@ struct PuzzleLayout {
     int rows, cols;
 };
 
+struct SolvingStep {
+    std::vector<std::vector<int>> grid;
+    std::unordered_map<int, int> rotations;
+    int stepNumber;
+    int filledCount;
+    double score;
+};
+
 namespace PieceMatcher {
     PuzzleLayout solve(const std::vector<PieceFeature>& features, int canvasW, int canvasH);
+    PuzzleLayout solveWithSteps(const std::vector<PieceFeature>& features, int canvasW, int canvasH,
+                                std::vector<SolvingStep>& steps);
     cv::Mat rotatePiece(const cv::Mat& img, float rotationDegrees);
 }

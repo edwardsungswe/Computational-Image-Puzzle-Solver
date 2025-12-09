@@ -133,9 +133,10 @@ vector<PieceInfo> PieceExtractor::extractPiecesWithInfo(const Mat& bgrImage, con
     sortContoursByArea(contours);
 
     int pieceIndex = 0;
+    const double MIN_AREA = 100;
 
     for (const auto& contour : contours) {
-        if (contourArea(contour) < 100) continue;
+        if (contourArea(contour) < MIN_AREA) continue;
 
         RotatedRect box = minAreaRect(contour);
         float angle = box.angle;
@@ -144,14 +145,21 @@ vector<PieceInfo> PieceExtractor::extractPiecesWithInfo(const Mat& bgrImage, con
 
         if (boxSize.width < 10 || boxSize.height < 10) continue;
 
-        Mat rotationMatrix = getRotationMatrix2D(box.center, angle, 1.0);
-        Mat rotated;
-        warpAffine(bgrImage, rotated, rotationMatrix, bgrImage.size(), INTER_CUBIC, BORDER_REPLICATE);
+        Mat pieceImg;
 
-        Rect roi = computeSafeROI(box.center, boxSize, rotated.size());
-        if (roi.width <= 0 || roi.height <= 0) continue;
+        if (abs(angle) > 1.0f) {
+            Mat rotationMatrix = getRotationMatrix2D(box.center, angle, 1.0);
+            Mat rotated;
+            warpAffine(bgrImage, rotated, rotationMatrix, bgrImage.size(), INTER_CUBIC, BORDER_REPLICATE);
 
-        Mat pieceImg = rotated(roi).clone();
+            Rect roi = computeSafeROI(box.center, boxSize, rotated.size());
+            if (roi.width <= 0 || roi.height <= 0) continue;
+            pieceImg = rotated(roi).clone();
+        } else {
+            Rect bbox = box.boundingRect() & Rect(0, 0, bgrImage.cols, bgrImage.rows);
+            if (bbox.width <= 0 || bbox.height <= 0) continue;
+            pieceImg = bgrImage(bbox).clone();
+        }
 
         Scalar mean = cv::mean(pieceImg);
         if (mean[0] + mean[1] + mean[2] < 30) continue;
