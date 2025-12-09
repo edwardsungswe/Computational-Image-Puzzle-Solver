@@ -772,6 +772,8 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
     vector<float> yOff(rows + 1, 0);
     vector<float> xOff(cols + 1, 0);
 
+     const int OVERLAP = 2;  // 2 pixels of overlap between adjacent pieces
+
     for (int r = 0; r < rows; r++) {
         float maxHeight = 0;
         for (int c = 0; c < cols; c++) {
@@ -780,6 +782,7 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
             maxHeight = max(maxHeight, (float)sz.height);
         }
         yOff[r + 1] = yOff[r] + maxHeight - 1;
+        // yOff[r + 1] = yOff[r] + maxHeight - OVERLAP;
     }
 
     for (int c = 0; c < cols; c++) {
@@ -790,6 +793,7 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
             maxWidth = max(maxWidth, (float)sz.width);
         }
         xOff[c + 1] = xOff[c] + maxWidth - 1;
+        // xOff[c + 1] = xOff[c] + maxWidth - OVERLAP;
     }
 
     for (int r = 0; r < rows; r++) {
@@ -826,5 +830,6 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
 
     return result;
 }
+
 
 }  // namespace PieceMatcher

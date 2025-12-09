@@ -96,24 +96,26 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    imwrite("output.png", finalPuzzle);
+
+    // imwrite("output.png", finalPuzzle);
+    imshow("Solved Puzzle", finalPuzzle);
+    waitKey(0);
+    // PuzzleAnimator::AnimationConfig animConfig;
+    // animConfig.totalFrames = 180;
+    // animConfig.fps = 30;
+    // animConfig.showWindow = true;
+    // animConfig.saveFrames = false;
+    // animConfig.outputDir = "./animation_frames/";
     
-    PuzzleAnimator::AnimationConfig animConfig;
-    animConfig.totalFrames = 180;
-    animConfig.fps = 30;
-    animConfig.showWindow = true;
-    animConfig.saveFrames = false;
-    animConfig.outputDir = "./animation_frames/";
-    
-    PuzzleAnimator::showCompleteProcess(
-        bgrImage,
-        pieceInfos,
-        features,         
-        solvingSteps,      
-        layout,     
-        width, height,
-        animConfig
-    );
+    // PuzzleAnimator::showCompleteProcess(
+    //     bgrImage,
+    //     pieceInfos,
+    //     features,         
+    //     solvingSteps,      
+    //     layout,     
+    //     width, height,
+    //     animConfig
+    // );
     
     destroyAllWindows();
 
