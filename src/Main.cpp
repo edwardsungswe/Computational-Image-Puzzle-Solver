@@ -74,6 +74,19 @@ int main(int argc, char* argv[]) {
     float centerY = (height - layoutHeight) / 2.0f;
 
     Mat finalPuzzle(height, width, CV_8UC3, Scalar(0, 0, 0));
+    Mat finalPuzzleWeight(height, width, CV_32FC1, Scalar(0.0f));  // Weight accumulator for blending
+
+    // Check if any pieces are rotated (for edge blur)
+    bool hasRotation = false;
+    for (const auto& entry : layout.positions) {
+        if (entry.second.rotation != 0.0f) {
+            hasRotation = true;
+            break;
+        }
+    }
+
+    // Apply edge blur to all pieces if there are rotations, to eliminate gaps
+    const int EDGE_BLUR_SIZE = hasRotation ? 6 : 0;  // Increased blur size for better blending
 
     for (const auto& entry : layout.positions) {
         int pieceId = entry.first;
@@ -92,7 +105,71 @@ int main(int argc, char* argv[]) {
         if (screenX >= 0 && screenY >= 0 && copyW > 0 && copyH > 0) {
             Rect srcROI(0, 0, copyW, copyH);
             Rect dstROI(screenX, screenY, copyW, copyH);
-            pieceToDraw(srcROI).copyTo(finalPuzzle(dstROI));
+            
+            Mat pieceROI = pieceToDraw(srcROI).clone();
+            Mat canvasROI = finalPuzzle(dstROI);
+            Mat weightROI = finalPuzzleWeight(dstROI);
+
+            if (EDGE_BLUR_SIZE > 0) {
+                // Create edge-blurred mask for all pieces when rotations are present
+                Mat mask(pieceROI.size(), CV_32FC1, Scalar(1.0f));
+                
+                // Create edge mask (fade out at edges with smoother transition)
+                int blurWidth = EDGE_BLUR_SIZE;
+                for (int y = 0; y < mask.rows; y++) {
+                    for (int x = 0; x < mask.cols; x++) {
+                        float distTop = static_cast<float>(y);
+                        float distBottom = static_cast<float>(mask.rows - 1 - y);
+                        float distLeft = static_cast<float>(x);
+                        float distRight = static_cast<float>(mask.cols - 1 - x);
+                        
+                        float minDist = min({distTop, distBottom, distLeft, distRight});
+                        if (minDist < blurWidth) {
+                            // Smooth transition: ensure minimum alpha to prevent complete transparency
+                            float normalizedDist = minDist / blurWidth;
+                            // Use smoother curve: start fading later, keep more opacity at edges
+                            float alpha = 0.3f + 0.7f * normalizedDist * normalizedDist;  // Minimum 0.3 alpha at edges
+                            mask.at<float>(y, x) = alpha;
+                        }
+                    }
+                }
+                
+                // Apply stronger Gaussian blur to smooth the mask
+                Mat blurredMask;
+                GaussianBlur(mask, blurredMask, Size(9, 9), 2.0);
+                
+                // Blend using the mask with weighted average
+                Mat pieceFloat, canvasFloat;
+                pieceROI.convertTo(pieceFloat, CV_32FC3);
+                canvasROI.convertTo(canvasFloat, CV_32FC3);
+                
+                for (int y = 0; y < pieceROI.rows; y++) {
+                    for (int x = 0; x < pieceROI.cols; x++) {
+                        float alpha = blurredMask.at<float>(y, x);
+                        float oldWeight = weightROI.at<float>(y, x);
+                        float newWeight = alpha;
+                        float totalWeight = oldWeight + newWeight;
+                        
+                        Vec3f newColor = pieceFloat.at<Vec3f>(y, x);
+                        
+                        if (totalWeight > 0.001f) {
+                            Vec3f oldColor = canvasFloat.at<Vec3f>(y, x);
+                            Vec3f blendedColor = (oldColor * oldWeight + newColor * newWeight) / totalWeight;
+                            canvasFloat.at<Vec3f>(y, x) = blendedColor;
+                            weightROI.at<float>(y, x) = totalWeight;
+                        } else {
+                            canvasFloat.at<Vec3f>(y, x) = newColor;
+                            weightROI.at<float>(y, x) = newWeight;
+                        }
+                    }
+                }
+                
+                canvasFloat.convertTo(canvasROI, CV_8UC3);
+            } else {
+                // For non-rotated pieces, use simple copy (no blur needed)
+                pieceROI.copyTo(canvasROI);
+                weightROI.setTo(1.0f);
+            }
         }
     }
 
@@ -100,22 +177,22 @@ int main(int argc, char* argv[]) {
     // imwrite("output.png", finalPuzzle);
     imshow("Solved Puzzle", finalPuzzle);
     waitKey(0);
-    // PuzzleAnimator::AnimationConfig animConfig;
-    // animConfig.totalFrames = 180;
-    // animConfig.fps = 30;
-    // animConfig.showWindow = true;
-    // animConfig.saveFrames = false;
-    // animConfig.outputDir = "./animation_frames/";
+    PuzzleAnimator::AnimationConfig animConfig;
+    animConfig.totalFrames = 180;
+    animConfig.fps = 30;
+    animConfig.showWindow = true;
+    animConfig.saveFrames = false;
+    animConfig.outputDir = "./animation_frames/";
     
-    // PuzzleAnimator::showCompleteProcess(
-    //     bgrImage,
-    //     pieceInfos,
-    //     features,         
-    //     solvingSteps,      
-    //     layout,     
-    //     width, height,
-    //     animConfig
-    // );
+    PuzzleAnimator::showCompleteProcess(
+        bgrImage,
+        pieceInfos,
+        features,         
+        solvingSteps,      
+        layout,     
+        width, height,
+        animConfig
+    );
     
     destroyAllWindows();
 

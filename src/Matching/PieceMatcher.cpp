@@ -529,6 +529,22 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
     vector<float> rowHeights(rows, medianH);
     vector<float> colWidths(cols, medianW);
 
+    // Check if any pieces are rotated
+    bool hasRotation = false;
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            int piece = bestComplete.grid[r][c];
+            if (bestComplete.rotations[piece] != 0) {
+                hasRotation = true;
+                break;
+            }
+        }
+        if (hasRotation) break;
+    }
+
+    // Add overlap for rotated puzzles to eliminate gaps from interpolation artifacts
+    const float OVERLAP = hasRotation ? 3.5f : 0.0f;  // Increased overlap for better blending
+
     vector<float> yOff(rows + 1, 0);
     vector<float> xOff(cols + 1, 0);
 
@@ -540,7 +556,7 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
             Size sz = getRotatedSize(features[piece].img, rot);
             maxHeight = max(maxHeight, (float)sz.height);
         }
-        yOff[r + 1] = yOff[r] + maxHeight;
+        yOff[r + 1] = yOff[r] + maxHeight - OVERLAP;
     }
 
     for (int c = 0; c < cols; c++) {
@@ -551,7 +567,7 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
             Size sz = getRotatedSize(features[piece].img, rot);
             maxWidth = max(maxWidth, (float)sz.width);
         }
-        xOff[c + 1] = xOff[c] + maxWidth;
+        xOff[c + 1] = xOff[c] + maxWidth - OVERLAP;
     }
 
     // Assign positions
@@ -785,6 +801,22 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
     vector<float> rowHeights(rows, medianH);
     vector<float> colWidths(cols, medianW);
 
+    // Check if any pieces are rotated
+    bool hasRotation = false;
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            int piece = bestComplete.grid[r][c];
+            if (bestComplete.rotations[piece] != 0) {
+                hasRotation = true;
+                break;
+            }
+        }
+        if (hasRotation) break;
+    }
+
+    // Add overlap for rotated puzzles to eliminate gaps from interpolation artifacts
+    const float OVERLAP = hasRotation ? 2.5f : 0.0f;  // Increased overlap for better blending
+
     vector<float> yOff(rows + 1, 0);
     vector<float> xOff(cols + 1, 0);
 
@@ -796,7 +828,7 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
             Size sz = getRotatedSize(features[piece].img, rot);
             maxHeight = max(maxHeight, (float)sz.height);
         }
-        yOff[r + 1] = yOff[r] + maxHeight;
+        yOff[r + 1] = yOff[r] + maxHeight - OVERLAP;
     }
 
     for (int c = 0; c < cols; c++) {
@@ -807,7 +839,7 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
             Size sz = getRotatedSize(features[piece].img, rot);
             maxWidth = max(maxWidth, (float)sz.width);
         }
-        xOff[c + 1] = xOff[c] + maxWidth;
+        xOff[c + 1] = xOff[c] + maxWidth - OVERLAP;
     }
 
     for (int r = 0; r < rows; r++) {

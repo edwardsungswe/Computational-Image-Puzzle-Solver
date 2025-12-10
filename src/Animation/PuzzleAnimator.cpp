@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 using namespace cv;
 using namespace std;
@@ -25,23 +27,120 @@ namespace PuzzleAnimator {
         );
     }
 
-    Mat rotateImage(const Mat& img, float angleDeg) {
-        if (abs(angleDeg) < 0.1f) return img;
+    // Helper function to draw rotated image directly on canvas at specified position
+    // Uses proper mask to avoid black borders - only draws pixels that were part of original image
+    static void drawRotatedImage(
+        Mat& canvas,
+        const Mat& img,
+        const Point2f& centerPos,
+        float angleDeg,
+        double alpha = 1.0)
+    {
+        if (abs(angleDeg) < 0.1f) {
+            // No rotation, just draw normally
+            int startX = static_cast<int>(centerPos.x - img.cols / 2.0f);
+            int startY = static_cast<int>(centerPos.y - img.rows / 2.0f);
+            
+            int srcX = 0, srcY = 0;
+            int dstX = startX, dstY = startY;
+            int width = img.cols, height = img.rows;
+            
+            if (dstX < 0) { srcX = -dstX; width += dstX; dstX = 0; }
+            if (dstY < 0) { srcY = -dstY; height += dstY; dstY = 0; }
+            if (dstX + width > canvas.cols) width = canvas.cols - dstX;
+            if (dstY + height > canvas.rows) height = canvas.rows - dstY;
+            
+            if (width > 0 && height > 0 && srcX >= 0 && srcY >= 0 &&
+                srcX < img.cols && srcY < img.rows) {
+                try {
+                    Rect srcRect(srcX, srcY, width, height);
+                    Rect dstRect(dstX, dstY, width, height);
+                    Mat roi = img(srcRect);
+                    Mat canvasRoi = canvas(dstRect);
+                    if (alpha >= 1.0) {
+                        roi.copyTo(canvasRoi);
+                    } else {
+                        addWeighted(roi, alpha, canvasRoi, 1.0 - alpha, 0, canvasRoi);
+                    }
+                } catch (...) {}
+            }
+            return;
+        }
+        
+        // Create rotation matrix centered at the image's own center
+        Point2f imgCenter(img.cols / 2.0f, img.rows / 2.0f);
+        
+        // Create a mask for the original image - mark valid pixels
+        // This ensures we only draw pixels that were part of the original image
+        Mat originalMask;
+        if (img.channels() == 4) {
+            // If image has alpha channel, use it
+            vector<Mat> channels;
+            split(img, channels);
+            originalMask = channels[3];  // Alpha channel
+        } else {
+            // For images without alpha channel, assume entire image is valid
+            // Create a white mask (all pixels valid) to avoid filtering out black pixels in the image
+            originalMask = Mat::ones(img.rows, img.cols, CV_8UC1) * 255;
+        }
+        
+        // Create ROI on canvas where we'll draw (large enough to contain rotated image)
+        float diagonal = sqrt(img.cols * img.cols + img.rows * img.rows);
+        int roiSize = static_cast<int>(ceil(diagonal)) + 20;
+        int roiX = max(0, static_cast<int>(centerPos.x - roiSize / 2));
+        int roiY = max(0, static_cast<int>(centerPos.y - roiSize / 2));
+        int roiW = min(roiSize, canvas.cols - roiX);
+        int roiH = min(roiSize, canvas.rows - roiY);
+        
+        if (roiW <= 0 || roiH <= 0) return;
+        
+        // Create ROI canvas
+        Rect roiRect(roiX, roiY, roiW, roiH);
+        Mat roiCanvas = canvas(roiRect);
+        
+        // Create rotation matrix that will place rotated image center at centerPos
+        Mat rotMatrix = getRotationMatrix2D(imgCenter, angleDeg, 1.0);
+        
+        // Adjust rotation matrix for ROI coordinate system
+        Mat roiRotMatrix = rotMatrix.clone();
+        roiRotMatrix.at<double>(0, 2) += centerPos.x - imgCenter.x - roiX;
+        roiRotMatrix.at<double>(1, 2) += centerPos.y - imgCenter.y - roiY;
+        
+        // Rotate the image
+        Mat rotatedImg;
+        warpAffine(img, rotatedImg, roiRotMatrix, Size(roiW, roiH), 
+                  INTER_LINEAR, BORDER_CONSTANT, Scalar(0, 0, 0));
+        
+        // Rotate the mask to know which pixels are valid
+        Mat rotatedMask;
+        warpAffine(originalMask, rotatedMask, roiRotMatrix, Size(roiW, roiH), 
+                  INTER_LINEAR, BORDER_CONSTANT, Scalar(0));
+        
+        // Only draw pixels where the mask is non-zero (valid pixels from original image)
+        // This prevents drawing black borders - only pixels that were in the original image are drawn
+        if (alpha >= 1.0) {
+            // Direct copy, only where mask is valid
+            rotatedImg.copyTo(roiCanvas, rotatedMask);
+        } else {
+            // Blend with alpha, but only for valid pixels
+            Mat blended;
+            addWeighted(rotatedImg, alpha, roiCanvas, 1.0 - alpha, 0, blended);
+            // Only apply blended result where mask is valid
+            blended.copyTo(roiCanvas, rotatedMask);
+        }
+    }
 
-        float angleRad = angleDeg * CV_PI / 180.0f;
+    // Simplified rotateImage: keep original size to avoid scale changes
+    // Note: This may crop edges when rotating, but prevents black borders
+    Mat rotateImage(const Mat& img, float angleDeg) {
+        if (abs(angleDeg) < 0.1f) return img.clone();
+
         Point2f center(img.cols / 2.0f, img.rows / 2.0f);
         Mat rot = getRotationMatrix2D(center, angleDeg, 1.0);
-
-        float cos_a = abs(cos(angleRad));
-        float sin_a = abs(sin(angleRad));
-        int newW = static_cast<int>(img.rows * sin_a + img.cols * cos_a);
-        int newH = static_cast<int>(img.rows * cos_a + img.cols * sin_a);
-
-        rot.at<double>(0, 2) += (newW / 2.0 - center.x);
-        rot.at<double>(1, 2) += (newH / 2.0 - center.y);
-
+        
+        // Keep original size - this prevents scale changes but may crop edges
         Mat rotated;
-        warpAffine(img, rotated, rot, Size(newW, newH), INTER_LINEAR, BORDER_REPLICATE);
+        warpAffine(img, rotated, rot, img.size(), INTER_LINEAR, BORDER_CONSTANT, Scalar(0, 0, 0));
         return rotated;
     }
 
@@ -113,6 +212,38 @@ namespace PuzzleAnimator {
         }
     }
 
+    // Helper function to save frame debug info to JSON
+    static void saveFrameDebugInfo(
+        const string& filename,
+        int frame,
+        float t,
+        const vector<AnimationFrame>& frames)
+    {
+        ofstream out(filename);
+        if (!out.is_open()) return;
+        
+        out << "{\n";
+        out << "  \"frame\": " << frame << ",\n";
+        out << "  \"progress\": " << t << ",\n";
+        out << "  \"pieces\": [\n";
+        
+        for (size_t i = 0; i < frames.size(); i++) {
+            out << "    {\n";
+            out << "      \"id\": " << i << ",\n";
+            out << "      \"position\": {\"x\": " << frames[i].position.x 
+                << ", \"y\": " << frames[i].position.y << "},\n";
+            out << "      \"rotation\": " << frames[i].rotation << ",\n";
+            out << "      \"scale\": " << frames[i].scale << "\n";
+            out << "    }";
+            if (i < frames.size() - 1) out << ",";
+            out << "\n";
+        }
+        
+        out << "  ]\n";
+        out << "}\n";
+        out.close();
+    }
+
     static void renderFrame(
         Mat& canvas,
         const vector<PieceFeature>& features,
@@ -133,35 +264,12 @@ namespace PuzzleAnimator {
             );
 
             const Mat& piece = features[i].img;
-            // The piece image is already normalized (rotated to 0 degrees)
-            // So we need to apply the interpolated rotation directly
-            Mat rotatedPiece = rotateImage(piece, animFrame.rotation);
+            // Use drawRotatedImage to draw directly on canvas, avoiding size changes
+            double alpha = 0.8 + 0.2 * t;
+            drawRotatedImage(canvas, piece, animFrame.position, animFrame.rotation, alpha);
 
             int screenX = static_cast<int>(animFrame.position.x);
             int screenY = static_cast<int>(animFrame.position.y);
-            int startX = screenX - rotatedPiece.cols / 2;
-            int startY = screenY - rotatedPiece.rows / 2;
-
-            int srcX = 0, srcY = 0;
-            int dstX = startX, dstY = startY;
-            int width = rotatedPiece.cols, height = rotatedPiece.rows;
-
-            if (dstX < 0) { srcX = -dstX; dstX = 0; }
-            if (dstY < 0) { srcY = -dstY; dstY = 0; }
-            if (dstX + width > canvas.cols) width = canvas.cols - dstX;
-            if (dstY + height > canvas.rows) height = canvas.rows - dstY;
-
-            if (width > 0 && height > 0 && srcX >= 0 && srcY >= 0) {
-                try {
-                    Rect srcRect(srcX, srcY, width, height);
-                    Rect dstRect(dstX, dstY, width, height);
-                    Mat roi = rotatedPiece(srcRect);
-                    Mat canvasRoi = canvas(dstRect);
-                    double alpha = 0.8 + 0.2 * t;
-                    addWeighted(roi, alpha, canvasRoi, 1.0 - alpha, 0, canvasRoi);
-                } catch (...) {}
-            }
-
             putText(canvas, to_string(i), Point(screenX + 5, screenY + 5),
                     FONT_HERSHEY_SIMPLEX, 0.4, Scalar(255, 255, 255), 1);
         }
@@ -204,33 +312,11 @@ namespace PuzzleAnimator {
             // So we directly apply animFrame.rotation to the normalized piece
             // This will show original state at t=0 (rotation = originalRot)
             // and final state at t=1 (rotation = endRotations[i])
-            Mat rotatedPiece = rotateImage(normalizedPiece, animFrame.rotation);
+            double alpha = 0.8 + 0.2 * t;
+            drawRotatedImage(canvas, normalizedPiece, animFrame.position, animFrame.rotation, alpha);
 
             int screenX = static_cast<int>(animFrame.position.x);
             int screenY = static_cast<int>(animFrame.position.y);
-            int startX = screenX - rotatedPiece.cols / 2;
-            int startY = screenY - rotatedPiece.rows / 2;
-
-            int srcX = 0, srcY = 0;
-            int dstX = startX, dstY = startY;
-            int width = rotatedPiece.cols, height = rotatedPiece.rows;
-
-            if (dstX < 0) { srcX = -dstX; dstX = 0; }
-            if (dstY < 0) { srcY = -dstY; dstY = 0; }
-            if (dstX + width > canvas.cols) width = canvas.cols - dstX;
-            if (dstY + height > canvas.rows) height = canvas.rows - dstY;
-
-            if (width > 0 && height > 0 && srcX >= 0 && srcY >= 0) {
-                try {
-                    Rect srcRect(srcX, srcY, width, height);
-                    Rect dstRect(dstX, dstY, width, height);
-                    Mat roi = rotatedPiece(srcRect);
-                    Mat canvasRoi = canvas(dstRect);
-                    double alpha = 0.8 + 0.2 * t;
-                    addWeighted(roi, alpha, canvasRoi, 1.0 - alpha, 0, canvasRoi);
-                } catch (...) {}
-            }
-
             putText(canvas, to_string(i), Point(screenX + 5, screenY + 5),
                     FONT_HERSHEY_SIMPLEX, 0.4, Scalar(255, 255, 255), 1);
         }
@@ -484,6 +570,12 @@ namespace PuzzleAnimator {
                                 Rect srcRect(srcX, srcY, width, height);
                                 Rect dstRect(dstX, dstY, width, height);
                                 rotatedPiece(srcRect).copyTo(canvas(dstRect));
+                                
+                                // Draw piece number
+                                string pieceNum = to_string(i);
+                                putText(canvas, pieceNum, 
+                                       Point(screenX + 5, screenY + 5),
+                                       FONT_HERSHEY_SIMPLEX, 0.4, Scalar(255, 255, 255), 1);
                             } catch (...) {}
                         }
                     }
@@ -567,33 +659,16 @@ namespace PuzzleAnimator {
                 // At t=1: animFrame.rotation = endRotations[i]
                 // So we rotate normalized piece by endRotations[i] to show final state
                 const Mat& normalizedPiece = pieceInfos[i].img;
-                Mat rotatedPiece = rotateImage(normalizedPiece, animFrame.rotation);
-
+                double alpha = 0.8 + 0.2 * t;
+                drawRotatedImage(canvas, normalizedPiece, animFrame.position, animFrame.rotation, alpha);
+                
+                // Draw piece number
                 int screenX = static_cast<int>(animFrame.position.x);
                 int screenY = static_cast<int>(animFrame.position.y);
-                int startX = screenX - rotatedPiece.cols / 2;
-                int startY = screenY - rotatedPiece.rows / 2;
-
-                int srcX = 0, srcY = 0;
-                int dstX = startX, dstY = startY;
-                int width = rotatedPiece.cols, height = rotatedPiece.rows;
-
-                if (dstX < 0) { srcX = -dstX; dstX = 0; width += dstX; }
-                if (dstY < 0) { srcY = -dstY; dstY = 0; height += dstY; }
-                if (dstX + width > canvas.cols) width = canvas.cols - dstX;
-                if (dstY + height > canvas.rows) height = canvas.rows - dstY;
-
-                if (width > 0 && height > 0 && srcX >= 0 && srcY >= 0 &&
-                    srcX < rotatedPiece.cols && srcY < rotatedPiece.rows) {
-                    try {
-                        Rect srcRect(srcX, srcY, width, height);
-                        Rect dstRect(dstX, dstY, width, height);
-                        Mat roi = rotatedPiece(srcRect);
-                        Mat canvasRoi = canvas(dstRect);
-                        double alpha = 0.8 + 0.2 * t;
-                        addWeighted(roi, alpha, canvasRoi, 1.0 - alpha, 0, canvasRoi);
-                    } catch (...) {}
-                }
+                string pieceNum = to_string(i);
+                putText(canvas, pieceNum, 
+                       Point(screenX + 5, screenY + 5),
+                       FONT_HERSHEY_SIMPLEX, 0.4, Scalar(255, 255, 255), 1);
             }
 
             putText(canvas, "Assembling Puzzle - Frame " + to_string(frame) + "/" + to_string(config.totalFrames - 1),
@@ -690,91 +765,49 @@ namespace PuzzleAnimator {
         
         for (size_t i = 0; i < pieceInfos.size(); i++) {
             startPositions.push_back(pieceInfos[i].center);
-            // Store original rotation - this is the angle before normalization
-            // The normalized image needs to be rotated by this angle to show original state
-            startRotations.push_back(pieceInfos[i].originalRotation);
+            // pieceInfos[i].img is already rotated to 0 degrees during extraction
+            // pieceInfos[i].originalRotation is the angle used to rotate the image during extraction
+            // To show original state, we need to rotate BACK by -originalRotation
+            // So start rotation should be -originalRotation, end rotation is 0
+            startRotations.push_back(-pieceInfos[i].originalRotation);
         }
         
-        // Animate from original to normalized grid in two phases:
-        // Phase 1: Rotate in place (no movement) - each piece rotates at its original position
-        // Phase 2: Move to grid position (already normalized, rotation = 0)
+        // Animate from original to normalized: Rotate in place (no movement)
+        // Each piece rotates at its original position from originalRotation to 0
         const int ROTATION_FRAMES = 60;  // Frames for rotation phase
-        const int MOVEMENT_FRAMES = 60;  // Frames for movement phase
-        const int TOTAL_FRAMES = ROTATION_FRAMES + MOVEMENT_FRAMES;
         
-        for (int frame = 0; frame < TOTAL_FRAMES; frame++) {
+        for (int frame = 0; frame < ROTATION_FRAMES; frame++) {
             Mat canvas(canvasH, canvasW, CV_8UC3, Scalar(0, 0, 0));
             
             for (size_t i = 0; i < pieceInfos.size(); i++) {
-                float currentRotation;
-                Point2f currentPosition;
-                
-                if (frame < ROTATION_FRAMES) {
-                    // Phase 1: Rotate in place (at original position)
-                    float tRot = static_cast<float>(frame) / (ROTATION_FRAMES - 1);
-                    currentPosition = startPositions[i];  // Stay at original position
-                    // Interpolate rotation from originalRotation to 0
-                    AnimationFrame rotFrame = interpolateFrame(
-                        startPositions[i], startPositions[i],  // Same position
-                        startRotations[i], 0.0f, tRot  // Rotate from originalRotation to 0
-                    );
-                    currentRotation = rotFrame.rotation;
-                } else {
-                    // Phase 2: Move to grid position (already normalized, rotation = 0)
-                    float tMove = static_cast<float>(frame - ROTATION_FRAMES) / (MOVEMENT_FRAMES - 1);
-                    currentRotation = 0.0f;  // Already normalized
-                    // Interpolate position from original to grid
-                    AnimationFrame moveFrame = interpolateFrame(
-                        startPositions[i], endPositions[i],
-                        0.0f, 0.0f, tMove  // No rotation change, just movement
-                    );
-                    currentPosition = moveFrame.position;
-                }
+                // Rotate in place (at original position)
+                float tRot = static_cast<float>(frame) / (ROTATION_FRAMES - 1);
+                Point2f currentPosition = startPositions[i];  // Stay at original position
+                // Interpolate rotation from -originalRotation (shows original state) to 0 (normalized)
+                AnimationFrame rotFrame = interpolateFrame(
+                    startPositions[i], startPositions[i],  // Same position
+                    startRotations[i], 0.0f, tRot  // Rotate from -originalRotation to 0
+                );
+                float currentRotation = rotFrame.rotation;
                 
                 // pieceInfos[i].img is normalized (rotated to 0 degrees during extraction)
                 // Apply the current rotation to show the piece state
+                // Use drawRotatedImage to properly handle rotation without black borders
                 const Mat& normalizedPiece = pieceInfos[i].img;
-                Mat rotatedPiece = rotateImage(normalizedPiece, currentRotation);
+                drawRotatedImage(canvas, normalizedPiece, currentPosition, currentRotation, 1.0);
                 
+                // Draw piece number
                 int screenX = static_cast<int>(currentPosition.x);
                 int screenY = static_cast<int>(currentPosition.y);
-                int startX = screenX - rotatedPiece.cols / 2;
-                int startY = screenY - rotatedPiece.rows / 2;
-                
-                int srcX = 0, srcY = 0;
-                int dstX = startX, dstY = startY;
-                int width = rotatedPiece.cols, height = rotatedPiece.rows;
-                
-                if (dstX < 0) { srcX = -dstX; dstX = 0; width += dstX; }
-                if (dstY < 0) { srcY = -dstY; dstY = 0; height += dstY; }
-                if (dstX + width > canvas.cols) width = canvas.cols - dstX;
-                if (dstY + height > canvas.rows) height = canvas.rows - dstY;
-                
-                if (width > 0 && height > 0 && srcX >= 0 && srcY >= 0 &&
-                    srcX < rotatedPiece.cols && srcY < rotatedPiece.rows) {
-                    try {
-                        Rect srcRect(srcX, srcY, width, height);
-                        Rect dstRect(dstX, dstY, width, height);
-                        rotatedPiece(srcRect).copyTo(canvas(dstRect));
-                        
-                        // Draw piece number
-                        string pieceNum = to_string(i);
-                        putText(canvas, pieceNum, 
-                               Point(screenX + 5, screenY + 5),
-                               FONT_HERSHEY_SIMPLEX, 0.4, Scalar(0, 255, 0), 1);
-                    } catch (...) {}
-                }
+                string pieceNum = to_string(i);
+                putText(canvas, pieceNum, 
+                       Point(screenX + 5, screenY + 5),
+                       FONT_HERSHEY_SIMPLEX, 0.4, Scalar(0, 255, 0), 1);
             }
             
-            string phaseText;
-            if (frame < ROTATION_FRAMES) {
-                phaseText = "Phase 1: Rotating pieces in place";
-            } else {
-                phaseText = "Phase 2: Arranging pieces in grid";
-            }
-            putText(canvas, "Step 3: " + phaseText + " - Frame " + to_string(frame) + "/" + to_string(TOTAL_FRAMES - 1),
+            putText(canvas, "Step 3: Rotating pieces in place - Frame " + to_string(frame) + "/" + to_string(ROTATION_FRAMES - 1),
                     Point(20, 40), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-            float progress = static_cast<float>(frame) / (TOTAL_FRAMES - 1);
+            float progress = static_cast<float>(frame) / (ROTATION_FRAMES - 1);
             putText(canvas, "Progress: " + to_string(static_cast<int>(progress * 100)) + "%",
                     Point(20, canvas.rows - 20), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(200, 200, 200), 2);
             
@@ -782,55 +815,15 @@ namespace PuzzleAnimator {
             int delay = max(1, 1000 / config.fps);
             if (waitKey(delay) == 27) break;
         }
-        
-        // Show final normalized state
-        Mat allPiecesDisplay = Mat::zeros(originalImage.size(), CV_8UC3);
-        for (size_t i = 0; i < pieceInfos.size(); i++) {
-            int row = i / colsPerRow;
-            int col = i % colsPerRow;
-            int offsetX = col * spacingX + 50;
-            int offsetY = row * spacingY + 80;
-            
-            const Mat& piece = features[i].img;
-            Rect dstRect(offsetX, offsetY, piece.cols, piece.rows);
-            Rect srcRect(0, 0, min(piece.cols, allPiecesDisplay.cols - offsetX),
-                        min(piece.rows, allPiecesDisplay.rows - offsetY));
-            
-            if (dstRect.x >= 0 && dstRect.y >= 0 && 
-                dstRect.x + srcRect.width <= allPiecesDisplay.cols &&
-                dstRect.y + srcRect.height <= allPiecesDisplay.rows) {
-                Mat roi = piece(srcRect);
-                roi.copyTo(allPiecesDisplay(dstRect));
-                
-                // Draw piece number with background
-                string pieceNum = to_string(i);
-                int baseline = 0;
-                Size textSize = getTextSize(pieceNum, FONT_HERSHEY_SIMPLEX, 0.7, 2, &baseline);
-                rectangle(allPiecesDisplay, 
-                         Point(offsetX, offsetY - textSize.height - 5),
-                         Point(offsetX + textSize.width + 10, offsetY),
-                         Scalar(0, 0, 0), -1);
-                putText(allPiecesDisplay, pieceNum, 
-                       Point(offsetX + 5, offsetY - 5),
-                       FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0, 255, 0), 2);
-            }
-        }
-        
-        putText(allPiecesDisplay, "Step 3: All Extracted Pieces (" + to_string(pieceInfos.size()) + " pieces)",
-               Point(20, 40), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
-        putText(allPiecesDisplay, "Press any key to start assembly animation...", Point(20, allPiecesDisplay.rows - 20),
-               FONT_HERSHEY_SIMPLEX, 0.7, Scalar(255, 255, 255), 2);
-        imshow("Puzzle Process", allPiecesDisplay);
-        waitKey(0);
 
-        // Step 4: Animation from normalized pieces to final puzzle result
+        // Step 4: Animation from normalized pieces (at original positions) to final puzzle result
         cout << "[Step 4/4] Animating from normalized pieces to final puzzle result..." << endl;
         cout << "This will play automatically. Press ESC to skip." << endl;
         
-        // Reuse endPositions and endRotations from Step 3 as start positions for Step 4
-        // (They already contain the grid layout positions)
-        vector<Point2f> assemblyStartPositions = endPositions;  // Grid positions from Step 3
-        vector<float> assemblyStartRotations = endRotations;    // 0 rotation from Step 3
+        // Use original positions as start positions for Step 4 (pieces are now normalized/rotated to 0)
+        vector<Point2f> assemblyStartPositions = startPositions;  // Original positions from Step 3
+        vector<float> assemblyStartRotations;  // All pieces are now normalized (rotation = 0)
+        assemblyStartRotations.resize(pieceInfos.size(), 0.0f);
         
         // Calculate end positions: final puzzle layout positions and rotations
         vector<Point2f> assemblyEndPositions;
@@ -845,7 +838,7 @@ namespace PuzzleAnimator {
             float t = static_cast<float>(frame) / (config.totalFrames - 1);
             Mat canvas(canvasH, canvasW, CV_8UC3, Scalar(0, 0, 0));
             
-            // Render each piece animating from Step 3 grid to final puzzle layout
+            // Render each piece animating from original positions to final puzzle layout
             for (size_t i = 0; i < pieceInfos.size(); i++) {
                 AnimationFrame animFrame = interpolateFrame(
                     assemblyStartPositions[i], assemblyEndPositions[i],
@@ -856,33 +849,16 @@ namespace PuzzleAnimator {
                 // At t=0: animFrame.rotation = 0 (normalized state from Step 3)
                 // At t=1: animFrame.rotation = endRotations[i] (final puzzle rotation)
                 const Mat& normalizedPiece = pieceInfos[i].img;
-                Mat rotatedPiece = rotateImage(normalizedPiece, animFrame.rotation);
+                double alpha = 0.8 + 0.2 * t;
+                drawRotatedImage(canvas, normalizedPiece, animFrame.position, animFrame.rotation, alpha);
                 
+                // Draw piece number
                 int screenX = static_cast<int>(animFrame.position.x);
                 int screenY = static_cast<int>(animFrame.position.y);
-                int startX = screenX - rotatedPiece.cols / 2;
-                int startY = screenY - rotatedPiece.rows / 2;
-                
-                int srcX = 0, srcY = 0;
-                int dstX = startX, dstY = startY;
-                int width = rotatedPiece.cols, height = rotatedPiece.rows;
-                
-                if (dstX < 0) { srcX = -dstX; dstX = 0; width += dstX; }
-                if (dstY < 0) { srcY = -dstY; dstY = 0; height += dstY; }
-                if (dstX + width > canvas.cols) width = canvas.cols - dstX;
-                if (dstY + height > canvas.rows) height = canvas.rows - dstY;
-                
-                if (width > 0 && height > 0 && srcX >= 0 && srcY >= 0 &&
-                    srcX < rotatedPiece.cols && srcY < rotatedPiece.rows) {
-                    try {
-                        Rect srcRect(srcX, srcY, width, height);
-                        Rect dstRect(dstX, dstY, width, height);
-                        Mat roi = rotatedPiece(srcRect);
-                        Mat canvasRoi = canvas(dstRect);
-                        double alpha = 0.8 + 0.2 * t;
-                        addWeighted(roi, alpha, canvasRoi, 1.0 - alpha, 0, canvasRoi);
-                    } catch (...) {}
-                }
+                string pieceNum = to_string(i);
+                putText(canvas, pieceNum, 
+                       Point(screenX + 5, screenY + 5),
+                       FONT_HERSHEY_SIMPLEX, 0.4, Scalar(0, 255, 0), 1);
             }
             
             putText(canvas, "Assembling Puzzle - Frame " + to_string(frame) + "/" + to_string(config.totalFrames - 1),
@@ -950,6 +926,12 @@ namespace PuzzleAnimator {
                     Rect srcRect(srcX, srcY, width, height);
                     Rect dstRect(dstX, dstY, width, height);
                     rotatedPiece(srcRect).copyTo(finalCanvas(dstRect));
+                    
+                    // Draw piece number
+                    string pieceNum = to_string(pieceId);
+                    putText(finalCanvas, pieceNum, 
+                           Point(screenX + 5, screenY + 5),
+                           FONT_HERSHEY_SIMPLEX, 0.4, Scalar(0, 255, 0), 1);
                 } catch (...) {}
             }
         }
