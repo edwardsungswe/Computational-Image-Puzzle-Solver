@@ -468,6 +468,13 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
                     
                     if (!valid) continue;
 
+                    // Add rotation penalty: prefer 0 rotation (translation-only)
+                    // Only apply rotation if it significantly improves the score
+                    const double ROTATION_PENALTY = 50.0;  // Penalty for non-zero rotations
+                    if (rot != 0) {
+                        score += ROTATION_PENALTY;
+                    }
+
                     SearchState newState = state;
                     newState.grid[nextRow][nextCol] = pid;
                     newState.rotations[pid] = rot;
@@ -529,20 +536,22 @@ PuzzleLayout solve(const vector<PieceFeature>& features, int canvasW, int canvas
         float maxHeight = 0;
         for (int c = 0; c < cols; c++) {
             int piece = bestComplete.grid[r][c];
-            Size sz = features[piece].img.size();
+            int rot = bestComplete.rotations[piece];
+            Size sz = getRotatedSize(features[piece].img, rot);
             maxHeight = max(maxHeight, (float)sz.height);
         }
-        yOff[r + 1] = yOff[r] + maxHeight - 1;
+        yOff[r + 1] = yOff[r] + maxHeight;
     }
 
     for (int c = 0; c < cols; c++) {
         float maxWidth = 0;
         for (int r = 0; r < rows; r++) {
             int piece = bestComplete.grid[r][c];
-            Size sz = features[piece].img.size();
+            int rot = bestComplete.rotations[piece];
+            Size sz = getRotatedSize(features[piece].img, rot);
             maxWidth = max(maxWidth, (float)sz.width);
         }
-        xOff[c + 1] = xOff[c] + maxWidth - 1;
+        xOff[c + 1] = xOff[c] + maxWidth;
     }
 
     // Assign positions
@@ -703,6 +712,13 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
                     
                     if (!valid) continue;
 
+                    // Add rotation penalty: prefer 0 rotation (translation-only)
+                    // Only apply rotation if it significantly improves the score
+                    const double ROTATION_PENALTY = 50.0;  // Penalty for non-zero rotations
+                    if (rot != 0) {
+                        score += ROTATION_PENALTY;
+                    }
+
                     SearchState newState = state;
                     newState.grid[nextRow][nextCol] = pid;
                     newState.rotations[pid] = rot;
@@ -772,28 +788,26 @@ PuzzleLayout solveWithSteps(const vector<PieceFeature>& features, int canvasW, i
     vector<float> yOff(rows + 1, 0);
     vector<float> xOff(cols + 1, 0);
 
-     const int OVERLAP = 2;  // 2 pixels of overlap between adjacent pieces
-
     for (int r = 0; r < rows; r++) {
         float maxHeight = 0;
         for (int c = 0; c < cols; c++) {
             int piece = bestComplete.grid[r][c];
-            Size sz = features[piece].img.size();
+            int rot = bestComplete.rotations[piece];
+            Size sz = getRotatedSize(features[piece].img, rot);
             maxHeight = max(maxHeight, (float)sz.height);
         }
-        yOff[r + 1] = yOff[r] + maxHeight - 1;
-        // yOff[r + 1] = yOff[r] + maxHeight - OVERLAP;
+        yOff[r + 1] = yOff[r] + maxHeight;
     }
 
     for (int c = 0; c < cols; c++) {
         float maxWidth = 0;
         for (int r = 0; r < rows; r++) {
             int piece = bestComplete.grid[r][c];
-            Size sz = features[piece].img.size();
+            int rot = bestComplete.rotations[piece];
+            Size sz = getRotatedSize(features[piece].img, rot);
             maxWidth = max(maxWidth, (float)sz.width);
         }
-        xOff[c + 1] = xOff[c] + maxWidth - 1;
-        // xOff[c + 1] = xOff[c] + maxWidth - OVERLAP;
+        xOff[c + 1] = xOff[c] + maxWidth;
     }
 
     for (int r = 0; r < rows; r++) {
