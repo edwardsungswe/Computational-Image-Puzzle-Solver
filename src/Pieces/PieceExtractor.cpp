@@ -198,47 +198,119 @@ vector<Mat> PieceExtractor::extractPieces(const Mat& bgrImage, const string& out
     return pieces;
 }
 
-Mat removeRemainingEdgeArtifactsLight(const Mat& piece, int threshold) {
-    if (piece.empty()) return piece.clone();
+// Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity = 1, int minArtifactSize = 5) {
+//     if (piece.empty()) return piece.clone();
     
-    Mat result = piece.clone();
+//     Mat result = piece.clone();
     
-    const int EDGE = 2;
+//     Mat gray;
+//     if (piece.channels() == 3) {
+//         cvtColor(piece, gray, COLOR_BGR2GRAY);
+//     } 
+//     else {
+//         gray = piece.clone();
+//     }
     
-    Mat gray;
-    if (piece.channels() == 3) {
-        cvtColor(piece, gray, COLOR_BGR2GRAY);
-    } else {
-        gray = piece.clone();
-    }
+//     Mat darkMask;
+//     threshold(gray, darkMask, sensitivity, 255, THRESH_BINARY_INV);
     
-    if (piece.rows < 10 || piece.cols < 10) return piece.clone();
+//     Mat kernel = getStructuringElement(MORPH_RECT, Size(5, 5));
+//     morphologyEx(darkMask, darkMask, MORPH_CLOSE, kernel);
+//     morphologyEx(darkMask, darkMask, MORPH_OPEN, kernel);
     
-    vector<Rect> edgeRegions = {
-        Rect(0, 0, piece.cols, EDGE),
-        Rect(0, piece.rows - EDGE, piece.cols, EDGE),
-        Rect(0, 0, EDGE, piece.rows),
-        Rect(piece.cols - EDGE, 0, EDGE, piece.rows)
-    };
+//     vector<vector<Point>> darkContours;
+//     findContours(darkMask, darkContours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
     
-    for (const auto& edgeRect : edgeRegions) {
-        Mat edgeRegion = gray(edgeRect);
-        Mat darkPixels = edgeRegion < threshold;
+//     for (const auto& contour : darkContours) {
+//         double area = contourArea(contour);
+//         Rect bbox = boundingRect(contour);
         
-        if (countNonZero(darkPixels) > edgeRect.area() * 0.8) {
-            Mat edgeMask = Mat::zeros(piece.size(), CV_8UC1);
-            edgeMask(edgeRect).setTo(255, darkPixels);
+//         bool isSmall = area < 500;
+//         bool isNearBorder = (bbox.x < 10 || bbox.y < 10 || 
+//                            bbox.x + bbox.width > piece.cols - 10 || 
+//                            bbox.y + bbox.height > piece.rows - 10);
+        
+//         Mat region = gray(bbox);
+//         Scalar regionMean = mean(region);
+//         bool isVeryDark = regionMean[0] < 10;
+        
+//         if (isSmall && isNearBorder && isVeryDark) {
+//             Mat artifactMask = Mat::zeros(piece.size(), CV_8UC1);
+//             drawContours(artifactMask, vector<vector<Point>>{contour}, 0, Scalar(255), -1);
             
-            if (piece.channels() == 3) {
-                inpaint(result, edgeMask, result, 2, INPAINT_TELEA);
-            }
-        }
-    }
+//             if (piece.channels() == 3) {
+//                 inpaint(result, artifactMask, result, 7, INPAINT_TELEA);
+//             } 
+//             else {
+//                 Mat maskInverted = 255 - artifactMask;
+//                 Scalar meanColor = mean(result, maskInverted);
+//                 result.setTo(meanColor, artifactMask);
+//             }
+//         }
+//     }
     
-    return result;
-}
 
-Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
+//     const int EDGE_CHECK_WIDTH = 15;
+    
+//     int topBlackRows = 0;
+//     for (int y = 0; y < min(EDGE_CHECK_WIDTH, result.rows); y++) {
+//         Mat row = result.row(y);
+//         Scalar rowMean = mean(row);
+//         if (rowMean[0] < 15 && rowMean[1] < 15 && rowMean[2] < 15) {
+//             topBlackRows++;
+//         } else {
+//             break;
+//         }
+//     }
+    
+//     int bottomBlackRows = 0;
+//     for (int y = result.rows - 1; y >= max(result.rows - EDGE_CHECK_WIDTH, 0); y--) {
+//         Mat row = result.row(y);
+//         Scalar rowMean = mean(row);
+//         if (rowMean[0] < 15 && rowMean[1] < 15 && rowMean[2] < 15) {
+//             bottomBlackRows++;
+//         } else {
+//             break;
+//         }
+//     }
+    
+//     int leftBlackCols = 0;
+//     for (int x = 0; x < min(EDGE_CHECK_WIDTH, result.cols); x++) {
+//         Mat col = result.col(x);
+//         Scalar colMean = mean(col);
+//         if (colMean[0] < 15 && colMean[1] < 15 && colMean[2] < 15) {
+//             leftBlackCols++;
+//         } else {
+//             break;
+//         }
+//     }
+    
+//     int rightBlackCols = 0;
+//     for (int x = result.cols - 1; x >= max(result.cols - EDGE_CHECK_WIDTH, 0); x--) {
+//         Mat col = result.col(x);
+//         Scalar colMean = mean(col);
+//         if (colMean[0] < 15 && colMean[1] < 15 && colMean[2] < 15) {
+//             rightBlackCols++;
+//         } else {
+//             break;
+//         }
+//     }
+    
+//     if (topBlackRows > 0 || bottomBlackRows > 0 || leftBlackCols > 0 || rightBlackCols > 0) {
+//         int newX = leftBlackCols;
+//         int newY = topBlackRows;
+//         int newWidth = result.cols - leftBlackCols - rightBlackCols;
+//         int newHeight = result.rows - topBlackRows - bottomBlackRows;
+        
+//         if (newWidth > 8 && newHeight > 8) {
+//             Rect cropRect(newX, newY, newWidth, newHeight);
+//             return result(cropRect).clone();
+//         }
+//     }
+    
+//     return result;
+// }
+Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity = 1, int minArtifactSize = 5) {
     if (piece.empty()) return piece.clone();
     
     Mat result = piece.clone();
@@ -246,14 +318,15 @@ Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
     Mat gray;
     if (piece.channels() == 3) {
         cvtColor(piece, gray, COLOR_BGR2GRAY);
-    } else {
+    } 
+    else {
         gray = piece.clone();
     }
     
     Mat darkMask;
-    threshold(gray, darkMask, sensitivity, 255, THRESH_BINARY_INV);
+    threshold(gray, darkMask, 1, 255, THRESH_BINARY_INV);
     
-    Mat kernel = getStructuringElement(MORPH_RECT, Size(3, 3));
+    Mat kernel = getStructuringElement(MORPH_RECT, Size(7, 7));
     morphologyEx(darkMask, darkMask, MORPH_CLOSE, kernel);
     morphologyEx(darkMask, darkMask, MORPH_OPEN, kernel);
     
@@ -264,22 +337,23 @@ Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
         double area = contourArea(contour);
         Rect bbox = boundingRect(contour);
         
-        bool isSmall = area < 300;
-        bool isNearBorder = (bbox.x < 5 || bbox.y < 5 ||
-                           bbox.x + bbox.width > piece.cols - 5 || 
-                           bbox.y + bbox.height > piece.rows - 5);
+        bool isSmall = area < 800;
+        bool isNearBorder = (bbox.x < 15 || bbox.y < 15 ||
+                           bbox.x + bbox.width > piece.cols - 15 || 
+                           bbox.y + bbox.height > piece.rows - 15);
         
         Mat region = gray(bbox);
         Scalar regionMean = mean(region);
-        bool isVeryDark = regionMean[0] < 15;
+        bool isVeryDark = regionMean[0] < 20;
         
         if (isSmall && isNearBorder && isVeryDark) {
             Mat artifactMask = Mat::zeros(piece.size(), CV_8UC1);
             drawContours(artifactMask, vector<vector<Point>>{contour}, 0, Scalar(255), -1);
             
             if (piece.channels() == 3) {
-                inpaint(result, artifactMask, result, 3, INPAINT_TELEA);
-            } else {
+                inpaint(result, artifactMask, result, 10, INPAINT_TELEA); 
+            } 
+            else {
                 Mat maskInverted = 255 - artifactMask;
                 Scalar meanColor = mean(result, maskInverted);
                 result.setTo(meanColor, artifactMask);
@@ -287,13 +361,14 @@ Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
         }
     }
     
-    const int EDGE_CHECK_WIDTH = 7;
+
+    const int EDGE_CHECK_WIDTH = 20;
     
     int topBlackRows = 0;
     for (int y = 0; y < min(EDGE_CHECK_WIDTH, result.rows); y++) {
         Mat row = result.row(y);
         Scalar rowMean = mean(row);
-        if (rowMean[0] < 10 && rowMean[1] < 10 && rowMean[2] < 10) {
+        if (rowMean[0] < 20 && rowMean[1] < 20 && rowMean[2] < 20) {  // Change value for more aggressive change
             topBlackRows++;
         } else {
             break;
@@ -304,7 +379,7 @@ Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
     for (int y = result.rows - 1; y >= max(result.rows - EDGE_CHECK_WIDTH, 0); y--) {
         Mat row = result.row(y);
         Scalar rowMean = mean(row);
-        if (rowMean[0] < 10 && rowMean[1] < 10 && rowMean[2] < 10) {
+        if (rowMean[0] < 20 && rowMean[1] < 20 && rowMean[2] < 20) {  // Change value for more aggressive change
             bottomBlackRows++;
         } else {
             break;
@@ -315,7 +390,7 @@ Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
     for (int x = 0; x < min(EDGE_CHECK_WIDTH, result.cols); x++) {
         Mat col = result.col(x);
         Scalar colMean = mean(col);
-        if (colMean[0] < 10 && colMean[1] < 10 && colMean[2] < 10) {
+        if (colMean[0] < 20 && colMean[1] < 20 && colMean[2] < 20) {  // Change value for more aggressive change
             leftBlackCols++;
         } else {
             break;
@@ -326,28 +401,27 @@ Mat cleanExtractionArtifacts(const Mat& piece, int sensitivity) {
     for (int x = result.cols - 1; x >= max(result.cols - EDGE_CHECK_WIDTH, 0); x--) {
         Mat col = result.col(x);
         Scalar colMean = mean(col);
-        if (colMean[0] < 10 && colMean[1] < 10 && colMean[2] < 10) {
+        if (colMean[0] < 20 && colMean[1] < 20 && colMean[2] < 20) {  // Change value for more aggressive change
             rightBlackCols++;
         } else {
             break;
         }
     }
     
-    if (topBlackRows > 2 || bottomBlackRows > 2 || leftBlackCols > 2 || rightBlackCols > 2) {
+    if (topBlackRows > 0 || bottomBlackRows > 0 || leftBlackCols > 0 || rightBlackCols > 0) {
         int newX = leftBlackCols;
         int newY = topBlackRows;
         int newWidth = result.cols - leftBlackCols - rightBlackCols;
         int newHeight = result.rows - topBlackRows - bottomBlackRows;
         
-        if (newWidth > piece.cols * 0.7 && newHeight > piece.rows * 0.7) {
+        if (newWidth > 5 && newHeight > 8) {  // allows more cropping
             Rect cropRect(newX, newY, newWidth, newHeight);
-            result = result(cropRect).clone();
+            return result(cropRect).clone();
         }
     }
     
-    return removeRemainingEdgeArtifactsLight(result, 50);
+    return result;
 }
-
 
 vector<PieceInfo> PieceExtractor::extractPiecesWithInfo(const cv::Mat& rgbImage, const std::string& outputDir) {
     vector<PieceInfo> pieces;
@@ -432,7 +506,7 @@ vector<PieceInfo> PieceExtractor::extractPiecesWithInfo(const cv::Mat& rgbImage,
         Scalar mean = cv::mean(pieceImg);
         if (mean[0] + mean[1] + mean[2] < 30) continue;
 
-        Mat cleanedPiece = cleanExtractionArtifacts(pieceImg, 15);
+        Mat cleanedPiece = cleanExtractionArtifacts(pieceImg);
 
         PieceInfo info;
         info.img = cleanedPiece;
