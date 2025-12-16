@@ -1,21 +1,19 @@
-# CSCI_576_Proj_1
+# Computational Image Puzzle Solver
 
-OpenCV must be installed prior and configured on the CMake before running
+This repository contains a **Computational Image Puzzle Solver** that reconstructs a larger image from scattered puzzle pieces using computer vision and image processing techniques. It was developed as a project for CSCI 576.
 
-To run the code go into the working folder and configure the build
+## Overview
 
-cmake -B .\build\
+The goal of this project is to automatically identify, match, and assemble image fragments (puzzle pieces) into a complete image. The solver loads input images containing scattered pieces, detects and extracts individual pieces, compares visual and edge features, and computes an arrangement that best reconstructs the original image.
 
-Then build the program
+## Features
 
-cmake --build .build\
+- Detects and extracts puzzle pieces from input images.
+- Analyzes visual features and edge shapes of pieces for matching.
+- Searches for optimal placement and orientation of pieces.
 
-Then run and execute
+## Requirements
 
-build\Debug\MyImageApplication.exe
-
-#note Edward. These are the commands I had to run to get this working
-cmake -S . -B build `-G "Visual Studio 17 2022" -A x64 `
-cmake --build build --config Release
-then add openCV dll files into folder where MyImageApplication.exe exists
-./build/Release/MyImageApplication.exe
+- C++17 or newer compiler
+- CMake (>= 3.10)
+- OpenCV (version 3.x or 4.x)
